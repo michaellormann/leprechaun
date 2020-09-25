@@ -16,5 +16,6 @@
 
 # Json files
 *.json
+
 # batch files
 *.bat

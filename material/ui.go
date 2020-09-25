@@ -25,7 +25,7 @@ import (
 	"gioui.org/widget/material"
 
 	"git.sr.ht/~whereswaldon/materials"
-	"git.sr.ht/~whereswaldon/niotify"
+	// "git.sr.ht/~whereswaldon/niotify"
 )
 
 var (
@@ -73,7 +73,7 @@ var (
 )
 
 var (
-	notifications = map[uint]*niotify.Notification{}
+// notifications = map[uint]*niotify.Notification{}
 )
 
 const (
@@ -393,7 +393,7 @@ func (win *Window) Loop() error {
 				e.Frame(gtx.Ops)
 				if first {
 					first = false
-					notify(StartupNotification, fmt.Sprintf("Leprechaun v%s", getVersion()))
+					// notify(StartupNotification, fmt.Sprintf("Leprechaun v%s", getVersion()))
 				}
 			}
 		}
@@ -452,30 +452,30 @@ func (win *Window) runBot() {
 }
 
 // notify sends notifications on android and X11 platforms.
-func notify(kind uint, message string) {
-	go func() {
-		if not, ok := notifications[kind]; ok {
-			not.Cancel()
-		}
-		mgr, err := niotify.NewManager()
-		if err != nil {
-			log.Printf("manager creation failed: %v", err)
-		}
-		notif, err := mgr.CreateNotification("Leprechaun", message)
-		if err != nil {
-			log.Printf("notification send failed: %v", err)
-			return
-		}
-		notifications[kind] = notif
-		if kind != PersistentNotification {
-			time.Sleep(time.Second * 10)
-			if err := notif.Cancel(); err != nil {
-				log.Printf("failed cancelling: %v", err)
-			}
-		}
-	}()
+// func notify(kind uint, message string) {
+// 	go func() {
+// 		if not, ok := notifications[kind]; ok {
+// 			not.Cancel()
+// 		}
+// 		mgr, err := niotify.NewManager()
+// 		if err != nil {
+// 			log.Printf("manager creation failed: %v", err)
+// 		}
+// 		notif, err := mgr.CreateNotification("Leprechaun", message)
+// 		if err != nil {
+// 			log.Printf("notification send failed: %v", err)
+// 			return
+// 		}
+// 		notifications[kind] = notif
+// 		if kind != PersistentNotification {
+// 			time.Sleep(time.Second * 10)
+// 			if err := notif.Cancel(); err != nil {
+// 				log.Printf("failed cancelling: %v", err)
+// 			}
+// 		}
+// 	}()
 
-}
+// }
 
 func (win *Window) handleStartStop(userEvent bool) {
 	if botBtnClicked > 1 {
@@ -489,7 +489,7 @@ func (win *Window) handleStartStop(userEvent bool) {
 		go win.runBot()
 
 		startStopbutton.Background = ColorRed
-		notify(BotNotification, "Leprechaun is running...")
+		// notify(BotNotification, "Leprechaun is running...")
 		botBtnClicked = 0 // reset btn clicks
 	} else {
 		if botIsStopping {
@@ -512,7 +512,7 @@ func (win *Window) handleStartStop(userEvent bool) {
 		}
 		startStopbutton.Background = origStartBtnColor
 		time.AfterFunc(time.Second*time.Duration(2), func() {
-			notify(BotNotification, "Leprechaun has stopped.")
+			// notify(BotNotification, "Leprechaun has stopped.")
 		})
 		botIsStopping = false
 		botBtnClicked = 0

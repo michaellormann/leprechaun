@@ -46,7 +46,6 @@ type App struct {
 }
 
 func newApp(test bool) *App {
-	mod.Main()
 	wd, _ := os.Getwd()
 	isAndroid := false
 	if runtime.GOOS == "android" {
@@ -125,7 +124,6 @@ func (a *App) loadFont() (err error) {
 	return nil
 }
 
-// Theme for the UI
 func (a *App) Theme() *material.Theme {
 	err := a.loadFont()
 	if err != nil || len(a.font) == 0 {
@@ -141,7 +139,7 @@ func (a *App) InitLogBackends(subsystem string) {
 	logFile := filepath.Join(a.dir, "Leprechaun", "logs", subsystem, "log.txt")
 	prefix := fmt.Sprintf("Leprechaun %s - ", strings.ToTitle(subsystem))
 	// initialize the log rotator
-	a.initLogRotator(logFile, subsystem, 30) // backup logs for 30 days.
+	a.InitLogRotator(logFile, subsystem, 30) // backup logs for 30 days.
 	logBackend := &log.Logger{}
 	logBackend.SetFlags(log.LstdFlags)
 	logBackend.SetOutput(a.logRotators[subsystem])
@@ -170,7 +168,7 @@ func (a *App) CloseLogFiles() {
 // InitLogRotator creates a log rotator for each subsystem.
 func (a *App) InitLogRotator(logFile, subsytem string, maxRolls int) {
 	logDir, _ := filepath.Split(logFile)
-	if _, err := os.Stat(logDir); os.IsNotExistsError(err) {
+	if _, err := os.Stat(logDir); os.IsNotExist(err) {
 		_ = os.MkdirAll(logDir, 0755)
 	}
 	r, err := rotator.New(logFile, 512, false, maxRolls)
