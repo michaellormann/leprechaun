@@ -14,6 +14,7 @@ import (
 	"time"
 
 	ui "github.com/michaellormann/leprechaun/material"
+	uiAndroid "github.com/michaellormann/leprechaun/material/android"
 
 	"gioui.org/font/gofont"
 	"gioui.org/font/opentype"
@@ -89,8 +90,15 @@ func main() {
 	myApp.LoadConfig()
 
 	theme := myApp.Theme()
-	myApp.win = ui.CreateWindow(theme, myApp.config)
-	myApp.win.InitBackends(myApp.logBackends)
+	if myApp.isAndroid {
+		// Android specific package
+		myApp.win = uiAndroid.CreateWindow(theme, myApp.config)
+		myApp.win.InitBackends(myApp.logBackends)
+	} else {
+		// Other platforms
+		myApp.win = ui.CreateWindow(theme, myApp.config)
+		myApp.win.InitBackends(myApp.logBackends)
+	}
 
 	go func() {
 		if err := myApp.win.Loop(); err != nil {

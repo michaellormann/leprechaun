@@ -10,6 +10,7 @@ import (
 	"time"
 
 	leper "github.com/michaellormann/leprechaun/bot"
+	jni "github.com/michaellormann/leprechaun/jni"
 
 	"gioui.org/io/key"
 	"gioui.org/io/profile"
@@ -119,6 +120,10 @@ type Window struct {
 	botStage     uint
 	gtx          layout.Context
 
+	// JNI
+	jvm  jni.JVM
+	jCtx jni.Object
+
 	// Profiling.
 	profiling   bool
 	profile     profile.Event
@@ -129,12 +134,16 @@ type Window struct {
 func CreateWindow(th *material.Theme, cfg *leper.Configuration) *Window {
 	w := app.NewWindow(
 		app.Size(mainWindowWidth, mainWindowHeight),
-		app.MaxSize(mainWindowWidth, mainWindowHeight),
+		// app.MaxSize(mainWindowWidth, mainWindowHeight),
 		app.Title("Leprechaun"),
 	)
 	// th.Color.Primary = ColorGreen
 	win := &Window{window: w, theme: th, cfg: cfg}
 	win.platform = runtime.GOOS
+	if win.platform == "android" {
+		win.jvm = jni.JVMFor(app.JavaVM())
+		win.jCtx = jni.Object(app.AppContext())
+	}
 	win.settingsPage = MainSettingsView
 	win.env.redraw = w.Invalidate
 	win.env.drag = gesture.Drag{}
