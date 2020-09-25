@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	leper "github.com/michaellormann/leprechaun-bot"
+	leper "github.com/michaellormann/leprechaun/bot"
 
 	"gioui.org/layout"
 	"gioui.org/text"
