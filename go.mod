@@ -4,6 +4,7 @@ go 1.14
 
 require (
 	gioui.org v0.0.0-20200917085049-ef7b3e75f4dc
+	gioui.org/cmd v0.0.0-20200917085049-ef7b3e75f4dc // indirect
 	git.sr.ht/~whereswaldon/materials v0.0.0-20200924184430-3da9082c86c0
 	git.sr.ht/~whereswaldon/niotify v0.0.3
 	github.com/VividCortex/ewma v1.1.1
