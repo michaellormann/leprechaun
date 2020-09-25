@@ -10,6 +10,7 @@ import (
 	"time"
 
 	leper "github.com/michaellormann/leprechaun/bot"
+	jni "github.com/michaellormann/leprechaun/jni"
 
 	"gioui.org/io/key"
 	"gioui.org/io/profile"
@@ -119,6 +120,10 @@ type Window struct {
 	botStage     uint
 	gtx          layout.Context
 
+	// JNI
+	jvm  jni.JVM
+	jCtx jni.Object
+
 	// Profiling.
 	profiling   bool
 	profile     profile.Event
@@ -134,6 +139,8 @@ func CreateWindow(th *material.Theme, cfg *leper.Configuration) *Window {
 	)
 	// th.Color.Primary = ColorGreen
 	win := &Window{window: w, theme: th, cfg: cfg}
+	win.jvm = jni.JVMFor(app.JavaVM())
+	win.jCtx = jni.Object(app.AppContext())
 	win.platform = runtime.GOOS
 	win.settingsPage = MainSettingsView
 	win.env.redraw = w.Invalidate
