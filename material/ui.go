@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"time"
 
+	"git.wow.st/gmp/jni"
 	leper "github.com/michaellormann/leprechaun/bot"
-	jni "github.com/michaellormann/leprechaun/jni"
 
 	"gioui.org/io/key"
 	"gioui.org/io/profile"

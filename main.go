@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"runtime"
 
+	"git.wow.st/gmp/jni"
 	leprechaun "github.com/michaellormann/leprechaun/bot"
-	"github.com/michaellormann/leprechaun/jni"
 
 	"log"
 	"os"

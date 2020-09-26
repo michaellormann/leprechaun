@@ -4,6 +4,8 @@
 *.dll
 *.so
 *.dylib
+*.apk
+
 
 # Test binary, built with `go test -c`
 *.test
@@ -19,3 +21,5 @@
 
 # batch files
 *.bat
+
+*.png
