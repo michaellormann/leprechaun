@@ -25,6 +25,8 @@ import (
 	"gioui.org/widget/material"
 )
 
+var helperClass = "github.com/michaellormann/leprechaun/ForegroundService.java"
+
 // App ....
 type App struct {
 	name        string

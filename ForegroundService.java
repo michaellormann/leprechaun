@@ -56,7 +56,7 @@ public class IPNService extends VpnService {
 		createNotificationChannel(NOTIFY_CHANNEL_ID, NOTIFY_CHANNEL_NAME, NotificationManagerCompat.IMPORTANCE_DEFAULT);
 
 		NotificationCompat.Builder builder = new NotificationCompat.Builder(this, NOTIFY_CHANNEL_ID)
-			.setSmallIcon(R.drawable.ic_notification)
+			.setSmallIcon(Icon.createWithBitmap(Bitmap.createBitmap(1,1,Bitmap.Config.ALPHA_8))))
 			.setContentTitle(title)
 			.setContentText(message)
 			.setContentIntent(configIntent())
@@ -72,7 +72,7 @@ public class IPNService extends VpnService {
 		createNotificationChannel(STATUS_CHANNEL_ID, STATUS_CHANNEL_NAME, NotificationManagerCompat.IMPORTANCE_LOW);
 
 		NotificationCompat.Builder builder = new NotificationCompat.Builder(this, STATUS_CHANNEL_ID)
-			.setSmallIcon(R.drawable.ic_notification)
+			.setSmallIcon(Icon.createWithBitmap(Bitmap.createBitmap(1,1,Bitmap.Config.ALPHA_8))))
 			.setContentTitle(title)
 			.setContentText(message)
 			.setContentIntent(configIntent())

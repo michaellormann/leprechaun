@@ -406,5 +406,5 @@ Leprechaun then records the details of this purchase into a ledger. As long as L
 i.e. ~0.05 BTC purchased for 250,000 @ 5,000,000 is sold at 257,500. Note: Each record in the ledger is distinct even if the assets are the the same.
 The user should please take note of the following:
 - Luno charges a ~1% taker fee (2% for Litecoin) for market orders. this cost is not factored in when you specify a purchase unit, so make sure you have enough to cover trading costs. The user-secified purchase unit is therefore an approximation of purchase volume that can vary slightly.
-- This is not a get-rich-quick app, the method Leprechaun uses favors high volume traders. It is important to keep in mind that the higher the amount you trade the higher the potential profit.
+- This methods employed here are obviously not get-rich-quick techniques, the method Leprechaun uses favors long-term, high volume traders. In general, the higher the amount you trade the higher the potential profit.
 `
