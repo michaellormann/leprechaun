@@ -369,6 +369,27 @@ func (win *Window) layoutConfigureWindow(gtx layout.Context) layout.Dimensions {
 		saveBtnTxt = "Apply"
 		savedTxt = "Done"
 	}
+
+	// func (ui *UI) withLoader(gtx layout.Context, loading bool, w layout.Widget) layout.Dimensions {
+	// 	cons := gtx.Constraints
+	// 	return layout.Stack{Alignment: layout.W}.Layout(gtx,
+	// 		layout.Stacked(func(gtx C) D {
+	// 			gtx.Constraints = cons
+	// 			return w(gtx)
+	// 		}),
+	// 		layout.Stacked(func(gtx C) D {
+	// 			if !loading {
+	// 				return D{}
+	// 			}
+	// 			return layout.Inset{Left: unit.Dp(16)}.Layout(gtx, func(gtx C) D {
+	// 				gtx.Constraints.Min = image.Point{
+	// 					X: gtx.Px(unit.Dp(16)),
+	// 				}
+	// 				return material.Loader(ui.theme).Layout(gtx)
+	// 			})
+	// 		}),
+	// 	)
+	// }
 	outerWidgets := []layout.Widget{
 		func(gtx layout.Context) D {
 			return mainConfigList.Layout(gtx, len(widgets), func(gtx C, i int) D {

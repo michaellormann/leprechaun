@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"runtime"
 
-	"git.wow.st/gmp/jni"
+	// "git.wow.st/gmp/jni"
 	leprechaun "github.com/michaellormann/leprechaun/bot"
 
 	"log"
@@ -25,7 +25,7 @@ import (
 	"gioui.org/widget/material"
 )
 
-var helperClass = "github.com/michaellormann/leprechaun/ForegroundService.java"
+// var helperClass = "github.com/michaellormann/leprechaun/android/ForegroundService.java"
 
 // App ....
 type App struct {
@@ -35,15 +35,15 @@ type App struct {
 	subsystems  []string
 	config      *leprechaun.Configuration
 	// err         error
-	fontFile  string
-	dir       string
-	cwd       string
-	test      bool
-	font      []text.FontFace
-	theme     *material.Theme
-	win       *ui.Window
-	jvm       jni.JVM
-	jCtx      jni.Object
+	fontFile string
+	dir      string
+	cwd      string
+	test     bool
+	font     []text.FontFace
+	theme    *material.Theme
+	win      *ui.Window
+	// jvm       jni.JVM
+	// jCtx      jni.Object
 	isAndroid bool
 }
 
@@ -181,16 +181,16 @@ func (a *App) InitLogRotator(logFile, subsytem string, maxRolls int) {
 	a.logRotators[subsytem] = r
 }
 
-func (a *App) callVoidMethod(obj jni.Object, name, sig string, args ...jni.Value) error {
-	if obj == 0 {
-		panic("invalid object")
-	}
-	return jni.Do(a.jvm, func(env jni.Env) error {
-		cls := jni.GetObjectClass(env, obj)
-		m := jni.GetMethodID(env, cls, name, sig)
-		return jni.CallVoidMethod(env, obj, m, args...)
-	})
-}
+// func (a *App) callVoidMethod(obj jni.Object, name, sig string, args ...jni.Value) error {
+// 	if obj == 0 {
+// 		panic("invalid object")
+// 	}
+// 	return jni.Do(a.jvm, func(env jni.Env) error {
+// 		cls := jni.GetObjectClass(env, obj)
+// 		m := jni.GetMethodID(env, cls, name, sig)
+// 		return jni.CallVoidMethod(env, obj, m, args...)
+// 	})
+// }
 
 // LoadConfig loads saved user settings from file. Default settings
 // are used if no settings are found on file.

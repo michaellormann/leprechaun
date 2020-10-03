@@ -222,7 +222,7 @@ func (bot *Bot) Run(settings *Configuration) error {
 							updatedRecord = record
 						}
 						// Save our purchase to the ledger.
-						err = addRecordToLedger(updatedRecord)
+						err = bot.addRecordToLedger(updatedRecord)
 						if err != nil {
 							debug("Error: ", err)
 							e := errors.New("could not add record with id: " + record.ID + "to the ledger")
@@ -246,7 +246,7 @@ func (bot *Bot) Run(settings *Configuration) error {
 
 			} else if signal == SellSignal {
 				// We can sell
-				sellViableAssets(&cl, currentPrice)
+				bot.sellViableAssets(&cl, currentPrice)
 				if cancelled() {
 					return ErrCancelled
 				}
@@ -260,7 +260,7 @@ func (bot *Bot) Run(settings *Configuration) error {
 			}
 			if signal != SellSignal {
 				// We should still check for viable sales in every round
-				sellViableAssets(&cl, currentPrice)
+				bot.sellViableAssets(&cl, currentPrice)
 			}
 			if cancelled() {
 				return ErrCancelled
@@ -313,7 +313,7 @@ func (bot *Bot) initBot() error {
 				return err
 			}
 			if strings.Contains(err.Error(), "context deadline exceeded") {
-				debug("Network Error! Your connection to the internet has timed out. Please check your internet connection.")
+				debug("Network Error! Your connection timed out. Please check your internet connection.")
 				return err
 			}
 			debug("Could not initialize ", assetNames[asset], " client. Reason: ", err)
@@ -362,10 +362,10 @@ func initClient(asset string) (client Client, err error) {
 }
 
 // TODO:: This function should be a goroutine
-func sellViableAssets(cl *Client, price float64) {
+func (bot *Bot) sellViableAssets(cl *Client, price float64) {
 	// First check if there are any viable assets in the ledger for sale.
 	debugf(`Leprechaun is checking the ledger for viable %s records...`, cl.name)
-	ledger := NewLedger()
+	ledger := bot.Ledger()
 	defer ledger.Save()
 	asset := cl.asset
 	viableRecords, err := ledger.ViableRecords(asset, price)
@@ -391,8 +391,8 @@ func sellViableAssets(cl *Client, price float64) {
 	return
 }
 
-func addRecordToLedger(rec Record) (err error) {
-	ledger := NewLedger()
+func (bot *Bot) addRecordToLedger(rec Record) (err error) {
+	ledger := bot.Ledger()
 	defer ledger.Save()
 	err = ledger.AddRecord(rec)
 	return

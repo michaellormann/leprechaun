@@ -38,8 +38,8 @@ var (
 	getAllRecords      = "SELECT * FROM RECORDS"
 )
 
-// NewLedger creates a new ledger object
-func NewLedger() (l *Ledger) {
+// Ledger returns a new ledger handle
+func (bot *Bot) Ledger() (l *Ledger) {
 	l = &Ledger{databasePath: config.LedgerDatabase}
 	l.loadDatabase()
 	return

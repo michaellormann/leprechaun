@@ -7,9 +7,9 @@ import (
 	"log"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 
-	"git.wow.st/gmp/jni"
 	leper "github.com/michaellormann/leprechaun/bot"
 
 	"gioui.org/io/key"
@@ -28,6 +28,9 @@ import (
 	"git.sr.ht/~whereswaldon/niotify"
 )
 
+//go:generate C:/Users/Michael/Desktop/android-studio/jre/bin/javac.exe -target 1.8 -source 1.8 -sourcepath . -d . -bootclasspath C:/Users/Michael/AppData/Local/Android/android-sdk/platforms/android-30/android.jar ForegroundService.java
+//go:generate jar cf ForegroundService.jar ../ForegroundService.class
+
 var (
 	// Version info
 	verMajor = 0
@@ -37,7 +40,7 @@ var (
 
 var (
 	// FGServiceClass is the foreground service helper class implemented in Java.
-	FGServiceClass = "github.com/michaellormann/leprechaun/ForegroundService.java"
+	FGServiceClass = "com/github/michaellormann/leprechaun/ForegroundService"
 	// ANDROID ...
 )
 
@@ -104,12 +107,12 @@ type Env struct {
 	drag   gesture.Drag
 }
 
-// JNIEnv holds the jvm and foreground service instances for the UI
-type JNIEnv struct {
-	jvm  jni.JVM
-	jCtx jni.Object
-	service jni.Object
-}
+// // JNIEnv holds the jvm and foreground service instances for the UI
+// type JNIEnv struct {
+// 	jvm     jni.JVM
+// 	jCtx    jni.Object
+// 	service jni.Object
+// }
 
 // Window holds the UI components and state
 type Window struct {
@@ -128,7 +131,7 @@ type Window struct {
 	gtx          layout.Context
 
 	// JNI
-	jenv JNIEnv
+	// jenv JNIEnv
 
 	// Profiling.
 	profiling   bool
@@ -145,8 +148,10 @@ func CreateWindow(th *material.Theme, cfg *leper.Configuration) *Window {
 	)
 	// th.Color.Primary = ColorGreen
 	win := &Window{window: w, theme: th, cfg: cfg}
-	win.jenv.jvm = jni.JVMFor(app.JavaVM())
-	win.jenv.jCtx = jni.Object(app.AppContext())
+	// win.jenv = JNIEnv{
+	// 	jvm:  jni.JVMFor(app.JavaVM()),
+	// 	jCtx: jni.Object(app.AppContext()),
+	// }
 	win.platform = runtime.GOOS
 	win.settingsPage = MainSettingsView
 	win.env.redraw = w.Invalidate
@@ -165,20 +170,6 @@ func CreateWindow(th *material.Theme, cfg *leper.Configuration) *Window {
 	leper.SetConfig(cfg)
 	win.initWidgets()
 	return win
-}
-
-func (win *Window) loadHelperClass() (helperCls jni.Class) {
-	err := jni.Do(jni.JVMFor(win.jenv.jvm), func(env jni.Env) error {
-		classLoader := jni.ClassLoaderFor(env, win.jenv.jCtx)
-		helperCls, err := jni.LoadClass(env, classLoader, helperClass)
-		if err != nil{
-			return err
-		}
-	)
-	if err != nil {
-		log.Fataln("There was an error while loading java helper class", err)
-	}
-
 }
 
 // Page defines a single activity in the app UI
@@ -407,7 +398,7 @@ func (win *Window) Loop() error {
 				e.Frame(gtx.Ops)
 				if first {
 					first = false
-					notify(StartupNotification, fmt.Sprintf("Leprechaun v%s", getVersion()))
+					// notify(StartupNotification, fmt.Sprintf("Leprechaun v%s", getVersion()))
 				}
 			}
 		}
@@ -536,19 +527,23 @@ func (win *Window) handleStartStop(userEvent bool) {
 }
 
 func (win *Window) setLogViewText(txt string) {
-	// TODO: Clear the log screen after evry thousandth message to release memory.
+	// Clear the log screen after every five hundredth message to release memory.
 	if logMessagesCount > 500 {
 		logMessagesCount = 0
 		logViewContents = []material.LabelStyle{}
-		// logView.SetText("")
 	}
 	if lastLogText != stoppingBotMessage || lastLogText != botStoppedMessage {
-		// logView.Insert(txt + "\n")
-		logViewContents = append(logViewContents, material.Label(win.theme, unit.Sp(14), txt))
-		// win.env.redraw()
+		if strings.Contains(strings.ToLower(txt), "error") {
+			lbl := material.Label(win.theme, unit.Sp(14), txt)
+			lbl.Color = ColorDanger
+			logViewContents = append(logViewContents, lbl)
+		} else {
+			logViewContents = append(logViewContents, material.Label(win.theme, unit.Sp(14), txt))
+		}
 		lastLogText = txt
 		logMessagesCount++
 	}
+	win.env.redraw()
 }
 
 func (win *Window) validateUserInputs() bool {
@@ -663,63 +658,4 @@ func (win *Window) restoreDefaulSettings() error {
 
 func layoutTextView(gtx layout.Context) layout.Dimensions {
 	return D{}
-}
-
-// jvmLoop interfaces the ui with the jvm
-func (win *Window) jvmLoop() {
-	for {
-		select {
-		case s := <-onConnect:
-			jni.Do(j.jvm, func(env jni.Env) error {
-				if jni.IsSameObject(env, s, win.jenv.service) {
-					// We already have a reference.
-					jni.DeleteGlobalRef(env, s)
-					return nil
-				}
-				if win.jenv.service != 0 {
-					jni.DeleteGlobalRef(env,win.jenv.service)
-				}
-				jni.service = s
-				return nil
-			})
-			win.handleStartStop(true)
-			win.updateNotification(win.jenv.service, win.botState)
-		case s := <-onDisconnect:
-			jni.Do(a.jvm, func(env jni.Env) error {
-				defer jni.DeleteGlobalRef(env, s)
-				if jni.IsSameObject(env, win.jenv.service, s) {
-					jni.DeleteGlobalRef(env, win.jenv.service)
-					win.jenv.service = 0
-				}
-				return nil
-			})
-			// handle disconnect event as if user has clicked the stop button
-			botBtnClicked = 1
-			win.handleStartStop(true)
-			// win.notify(BotNotification, "Leprechaun has Stopped.")
-			win.updateNotification(win.jenv.service, win.botState)
-		}
-
-	}
-
-}
-// updateNotification updates the foreground persistent status notification.
-func (j *JNIEnv) updateNotification(service jni.Object, state uint) error {
-	var msg, title string
-	switch state{
-	case Running:
-		title, msg = "Leprechaun", "Trading session is active"
-	case Stopped:
-		title, msg = "Leprechaun", "Trading session has stopped."
-	}
-	return jni.Do(j.jvm, func(env jni.Env) error {
-		cls := jni.GetObjectClass(env, service)
-		if cls == nil {
-			cls = j.loadHelperClass()
-		}
-		update := jni.GetMethodID(env, cls, "updateStatusNotification", "(Ljava/lang/String;Ljava/lang/String;)V")
-		jtitle := jni.JavaString(env, title)
-		jmessage := jni.JavaString(env, msg)
-		return jni.CallVoidMethod(env, service, update, jni.Value(jtitle), jni.Value(jmessage))
-	})
 }
