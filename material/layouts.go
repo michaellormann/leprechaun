@@ -1,12 +1,14 @@
 package material
 
 import (
+	"bytes"
 	"fmt"
 	"image/color"
 	"io/ioutil"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	leper "github.com/michaellormann/leprechaun/bot"
@@ -21,6 +23,8 @@ import (
 
 var (
 	logView         *widget.Editor
+	loadLogContents sync.Once
+	LogContents     bytes.Buffer
 	th              *material.Theme
 	startStopbutton iconButton
 	pad             layout.Inset
@@ -717,6 +721,16 @@ func (win *Window) loadStats() {
 	}
 }
 
+func (win *Window) readLogFile() {
+	data, err := ioutil.ReadFile(filepath.Join(win.cfg.LogDir, "log.txt"))
+	if err != nil {
+		LogContents.WriteString("Error! Could not open log file.")
+		return
+	}
+	LogContents.Write(data)
+	return
+}
+
 func (win *Window) layoutLogView(gtx layout.Context) D {
 	widgets := []layout.FlexChild{
 		layout.Rigid(func(gtx C) D {
@@ -725,12 +739,9 @@ func (win *Window) layoutLogView(gtx layout.Context) D {
 			return ed.Layout(gtx)
 		}),
 	}
+	loadLogContents.Do(win.readLogFile)
+	logView.SetText(LogContents.String())
 
-	data, err := ioutil.ReadFile(filepath.Join(win.cfg.LogDir, "log.txt"))
-	if err != nil {
-		logView.SetText("Error! Could not open log File")
-	}
-	logView.SetText(string(data))
 	return modalLogViewList.Layout(gtx, len(widgets), func(gtx C, i int) D {
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx, widgets[i])
 	})

@@ -25,8 +25,6 @@ import (
 	"gioui.org/widget/material"
 )
 
-// var helperClass = "github.com/michaellormann/leprechaun/android/ForegroundService.java"
-
 // App ....
 type App struct {
 	name        string
@@ -34,17 +32,14 @@ type App struct {
 	logBackends map[string]*log.Logger
 	subsystems  []string
 	config      *leprechaun.Configuration
-	// err         error
-	fontFile string
-	dir      string
-	cwd      string
-	test     bool
-	font     []text.FontFace
-	theme    *material.Theme
-	win      *ui.Window
-	// jvm       jni.JVM
-	// jCtx      jni.Object
-	isAndroid bool
+	fontFile    string
+	dir         string
+	cwd         string
+	test        bool
+	font        []text.FontFace
+	theme       *material.Theme
+	win         *ui.Window
+	isAndroid   bool
 }
 
 func newApp(test bool) *App {
@@ -180,17 +175,6 @@ func (a *App) InitLogRotator(logFile, subsytem string, maxRolls int) {
 	}
 	a.logRotators[subsytem] = r
 }
-
-// func (a *App) callVoidMethod(obj jni.Object, name, sig string, args ...jni.Value) error {
-// 	if obj == 0 {
-// 		panic("invalid object")
-// 	}
-// 	return jni.Do(a.jvm, func(env jni.Env) error {
-// 		cls := jni.GetObjectClass(env, obj)
-// 		m := jni.GetMethodID(env, cls, name, sig)
-// 		return jni.CallVoidMethod(env, obj, m, args...)
-// 	})
-// }
 
 // LoadConfig loads saved user settings from file. Default settings
 // are used if no settings are found on file.

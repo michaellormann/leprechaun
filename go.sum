@@ -5,6 +5,7 @@ gioui.org v0.0.0-20200912153211-2f67feafc0a2/go.mod h1:Y+uS7hHMvku1Q+ooaoq6fYD5B
 gioui.org v0.0.0-20200917085049-ef7b3e75f4dc h1:H4dzzKcjkPGfEp8ANkmNOwG42bwd4p22M/6mFXnb6Q0=
 gioui.org v0.0.0-20200917085049-ef7b3e75f4dc/go.mod h1:Y+uS7hHMvku1Q+ooaoq6fYD5B2LGoT8JtFgvmYmRzTw=
 gioui.org v0.0.0-20200929170715-d2e06d938930 h1:d3Ke9NkFY32g6ZFP+cAyxl3h3KD5lFN8KXZ1+XwCYWs=
+gioui.org v0.0.0-20201005075949-29740ba59343 h1:+BLxwayMrPRWI6gXFLaEMHJzSql/RXmSBUa4FHRenmQ=
 gioui.org/cmd v0.0.0-20200929170715-d2e06d938930/go.mod h1:dlmJnCEkOpRaChYxRmJZ5S4jk6y7DCfWnec39xGbUYk=
 git.sr.ht/~whereswaldon/materials v0.0.0-20200924184430-3da9082c86c0 h1:myWAjtX6fyH5xXChuLVbW93l27DitpamcKSb3vfkFrQ=
 git.sr.ht/~whereswaldon/materials v0.0.0-20200924184430-3da9082c86c0/go.mod h1:83h9SWCZR03wxWMs7qUlaexugfSlEorznGkxgCwsrC8=
