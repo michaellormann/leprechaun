@@ -30,45 +30,13 @@ type Analyzer interface {
 
 // SIGNAL is emitted by the Emit function based on results from the technical analysis
 //  that tell the bot what to do
-type SIGNAL int
+type SIGNAL string
 
 const (
-	SignalWait SIGNAL = iota
-	SignalBuy
-	SignalSell
+	SignalWait SIGNAL = "WAIT"
+	SignalBuy  SIGNAL = "BUY"
+	SignalSell SIGNAL = "SELL"
 )
-
-// Emit2 ...
-func (cl *Client) Emit2(al Analyzer) (signal SIGNAL, err error) {
-	retries := 3
-	var (
-		prices    []float64
-		pricesErr error
-	)
-	for errCount := 0; errCount < retries; errCount++ {
-		prices, pricesErr = cl.PreviousPrices(al.PriceDimensions())
-		if cancelled() {
-			return SignalWait, ErrCancelled
-		}
-		if err == nil && pricesErr == nil {
-			break
-		}
-	}
-	if err != nil {
-		debug("An error occured while retrieving price data from the exchange. Please check your network connection!", err.Error())
-		return SignalWait, err
-	}
-
-	// Do analysis
-	err = al.Analyze(prices)
-	if err != nil {
-		debugf("Analysis incomplete, due to error: (%v)", err)
-		return SignalWait, err
-	}
-	// Emit the signal
-	return al.Emit(), nil
-
-}
 
 // $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
 
@@ -84,20 +52,26 @@ type DefaultAnalysisPlugin struct {
 	movingAverage float64
 	mAvgWindow    int // Moving Average window
 	score         int
+	pos           PricePosition
+	currentPrice  float64
 }
 
-// AnalysisPlugin returns the analyzer object we will use for our bot.
-// The returned object must satisfy the Analyzer interface.
-func (bot *Bot) AnalysisPlugin() Analyzer {
-	return &DefaultAnalysisPlugin{
-		NumPrices:     11,
-		PriceInterval: time.Duration(25) * time.Minute,
-	}
+func (plugin *DefaultAnalysisPlugin) PriceDimensions() (int, time.Duration) {
+	return plugin.NumPrices, plugin.PriceInterval
 }
 
-// analyze examines market data and determines whether there is an uptrend of downtrend of price
-func Analyze(prices []float64) (score int64) {
+// Analyze examines market data and determines whether there is an uptrend of downtrend of price
+func (plugin *DefaultAnalysisPlugin) Analyze(prices []float64) (err error) {
+	// Note: this function is a work in progress, it currently holds very simple techniques that
+	// will be updated later.
 	// todo:: just analyze price trend without any ema
+	plugin.prices = prices
+	plugin.currentPrice = prices[0] // Most recent price is the first in the slice
+
+	// Determine the current price position with respect to the moving average
+	plugin.doPricePosition()
+
+	// Score the price
 	// It is helpful to get an odd number of prices to ensure there is
 	// always a clear price trend. It is possible for half of an even nunmber
 	// of prices to exhibit a pattern that is equal to the other half, thus
@@ -108,65 +82,49 @@ func Analyze(prices []float64) (score int64) {
 	// signifies a drop in price, and vice versa.
 	// If the score is positive, there has been a relative uptrend in price movement
 	// if the score is negative, price movement has been downward
+	plugin.score = 0
 	for x := 0; x < len(prices)-1; x++ {
 		if prices[x] > prices[x+1] {
-			score--
+			plugin.score--
 		} else if prices[x] < prices[x+1] {
-			score++
+			plugin.score++
 		}
 	}
-	// Todo: Calculate exponential moving average of prices with respect to time.
-	// This is to determine postion of current price relative to the moving average.
-	return
+	return nil
 }
 
-// doEma computes the exponential moving average for past prices collected from the exchange.
-func doEma(prices []float64) float64 {
+// doEMA computes the exponential moving average for past prices collected from the exchange.
+func (plugin *DefaultAnalysisPlugin) doEMA() {
 	ema := ewma.NewMovingAverage()
-	for _, price := range prices {
+	for _, price := range plugin.prices {
 		ema.Add(price)
 	}
 	// fmt.Println("EMA: ", ema.Value())
-	return ema.Value()
+	plugin.movingAverage = ema.Value()
+}
+
+// doPricePosition determines postion of current price relative to the moving average.
+func (plugin *DefaultAnalysisPlugin) doPricePosition() {
+	plugin.pos = PricePosition{}
+	plugin.doEMA()
+	if plugin.currentPrice < plugin.movingAverage {
+		// current price is below the ema
+		plugin.pos.below = true
+	} else if plugin.currentPrice > plugin.movingAverage {
+		// current price is above the ema
+		plugin.pos.above = true
+	} else {
+		// price is relatively stable
+		plugin.pos.stable = true
+	}
+
 }
 
 // Emit emits a BUY, SELL or WAIT signal based on data from `analyze()`
-func (cl *Client) Emit() (signal SIGNAL, err error) {
+func (plugin *DefaultAnalysisPlugin) Emit() (signal SIGNAL) {
 	// TODO:: USE LUNO ORER REQUEST V2 TO SEE WHAT ORDERS ARE IN THE ORDERBOOK.
 	// IF AN ORDER HAS A HIGH NUMBER OF ASSET ATTACHED TO IT AND IT IS RELATIVELY CLSE TO YOUR PROFIT MARK
 	// YOU CAN ALIGN WITH IT.
-	var (
-		prices       []float64
-		currentPrice float64
-		pricesErr    error
-	)
-	for errCount := 0; errCount < 3; errCount++ {
-		prices, pricesErr = cl.PreviousPrices(11, time.Duration(25)*time.Minute)
-		currentPrice, err = cl.CurrentPrice()
-		if cancelled() {
-			return SignalWait, ErrCancelled
-		}
-		if err == nil && pricesErr == nil {
-			break
-		}
-	}
-	if err != nil {
-		debug("An error occured while retrieving price data from the exchange. Please check your network connection!", err.Error())
-		return SignalWait, err
-	}
-	// Price position.
-	pos := PricePosition{}
-	ema := doEma(prices)
-	if currentPrice < ema {
-		// current price is below the ema
-		pos.below = true
-	} else if currentPrice > ema {
-		// current price is above the ema
-		pos.above = true
-	} else {
-		// price is relatively stable
-		pos.stable = true
-	}
 
 	// TODO:: Use Contrarian technique from python implementation
 	// Price direction and ema position combined.
@@ -174,28 +132,28 @@ func (cl *Client) Emit() (signal SIGNAL, err error) {
 	// If direction is DOWN and EMA is below: BUY
 	// If direction is UP and EMA is above: SELL
 	// If direction is UP and EMA is below: BUY
-	// Price direction
-	score := analyze(prices)
-	if score < 0 {
+
+	if plugin.score < 0 {
 		// Price trend is downward
-		if pos.above {
+		if plugin.pos.above {
 			signal = SignalSell
-		} else if pos.below {
+		} else if plugin.pos.below {
 			signal = SignalBuy
 		} else {
 			signal = SignalWait
 		}
-	} else if score > 0 {
+	} else if plugin.score > 0 {
 		// Price trend is upward
-		if pos.above {
+		if plugin.pos.above {
 			signal = SignalSell
-		} else if pos.below {
+		} else if plugin.pos.below {
 			signal = SignalBuy
 		} else {
 			signal = SignalWait
 		}
 	} else {
 		// Price direction is indeterminate
+		return SignalWait
 	}
-	return signal, nil
+	return signal
 }

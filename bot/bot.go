@@ -14,6 +14,7 @@ import (
 	"math/rand"
 	"strconv"
 	"strings"
+	"time"
 
 	luno "github.com/luno/luno-go"
 )
@@ -187,8 +188,8 @@ func (bot *Bot) Run(settings *Configuration) error {
 			}
 			debugf("The current price of %s(%s) is %s %.3f\n", cl.name, cl.asset, cl.currency, currentPrice)
 			debug("Leprechaun is analyzing market data...")
-			signal, err = cl.Emit()
-			debugf("Recommended action for %s based on market analysis: %s", cl.name, signal)
+			signal, err = bot.Emit(&cl)
+			debugf("Recommended action for %s based on market analysis: %v", cl.name, signal)
 			if err != nil {
 				debugf("Analysis for %s incomplete. Reason: %s. Will skip.", cl.name, err.Error())
 				continue
@@ -196,7 +197,7 @@ func (bot *Bot) Run(settings *Configuration) error {
 			if cancelled() {
 				return ErrCancelled
 			}
-			if signal == BuySignal {
+			if signal == SignalBuy {
 				// We can buy.
 				if canPurchase {
 					// Try to purchase `Client.asset`
@@ -244,7 +245,7 @@ func (bot *Bot) Run(settings *Configuration) error {
 						cl.name, cl.currency, cl.fiatBalance)
 				}
 
-			} else if signal == SellSignal {
+			} else if signal == SignalSell {
 				// We can sell
 				bot.sellViableAssets(&cl, currentPrice)
 				if cancelled() {
@@ -258,7 +259,7 @@ func (bot *Bot) Run(settings *Configuration) error {
 			if cancelled() {
 				return ErrCancelled
 			}
-			if signal != SellSignal {
+			if signal != SignalSell {
 				// We should still check for viable sales in every round
 				bot.sellViableAssets(&cl, currentPrice)
 			}
@@ -279,8 +280,23 @@ func (bot *Bot) Run(settings *Configuration) error {
 
 // NewBot create a new trading bot object
 func NewBot() *Bot {
-	bot = &Bot{name: "Leprechaun", exchange: "Luno", id: rand.Intn(1000)}
+	bot = &Bot{
+		name:     "Leprechaun",
+		exchange: "Luno",
+		id:       rand.Intn(1000),
+		analysisPlugin: &DefaultAnalysisPlugin{
+			NumPrices:     11,
+			PriceInterval: time.Duration(25) * time.Minute,
+		},
+	}
 	return bot
+}
+
+// SetAnalysisPlugin specifies the analyzer object used by the bot.
+// It is expose for external use.
+// The plugin object must satisfy the Analyzer interface.
+func (bot *Bot) SetAnalysisPlugin(plugin Analyzer) {
+	bot.analysisPlugin = plugin
 }
 
 // Channels returns a struct holding all chans for communicating with the bot.
@@ -396,4 +412,36 @@ func (bot *Bot) addRecordToLedger(rec Record) (err error) {
 	defer ledger.Save()
 	err = ledger.AddRecord(rec)
 	return
+}
+
+// Emit runs the technical analysis pipeline and returns the
+// signal emited by the analysis plugin
+func (bot *Bot) Emit(cl *Client) (signal SIGNAL, err error) {
+	retries := 3
+	var (
+		prices    []float64
+		pricesErr error
+	)
+	for errCount := 0; errCount < retries; errCount++ {
+		prices, pricesErr = cl.PreviousPrices(bot.analysisPlugin.PriceDimensions())
+		if cancelled() {
+			return SignalWait, ErrCancelled
+		}
+		if err == nil && pricesErr == nil {
+			break
+		}
+	}
+	if err != nil {
+		debug("An error occured while retrieving price data from the exchange. Please check your network connection!", err.Error())
+		return SignalWait, err
+	}
+
+	// Do analysis
+	err = bot.analysisPlugin.Analyze(prices)
+	if err != nil {
+		debugf("Analysis incomplete, due to error: (%v)", err)
+		return SignalWait, err
+	}
+	// Emit the signal
+	return bot.analysisPlugin.Emit(), nil
 }

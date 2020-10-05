@@ -135,13 +135,14 @@ func (entry *SaleEntry) String() string {
 
 // Bot is our trading bot
 type Bot struct {
-	name          string
-	clients       []Client
-	exchange      string
-	sessionLength time.Duration
-	id            int
-	cancel        context.CancelFunc
-	chans         *Channels
+	name           string
+	clients        []Client
+	exchange       string
+	sessionLength  time.Duration
+	id             int
+	cancel         context.CancelFunc
+	chans          *Channels
+	analysisPlugin Analyzer
 }
 
 // PurchaseQuote buys an asset using the qoute technique
