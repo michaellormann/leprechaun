@@ -26,10 +26,8 @@ import (
 
 	"git.sr.ht/~whereswaldon/materials"
 	"git.sr.ht/~whereswaldon/niotify"
+	"github.com/gen2brain/beeep"
 )
-
-//go:generate C:/Users/Michael/Desktop/android-studio/jre/bin/javac.exe -target 1.8 -source 1.8 -sourcepath . -d . -bootclasspath C:/Users/Michael/AppData/Local/Android/android-sdk/platforms/android-30/android.jar ForegroundService.java
-//go:generate jar cf ForegroundService.jar ../ForegroundService.class
 
 var (
 	// Version info
@@ -352,6 +350,10 @@ func (win *Window) Loop() error {
 					botBtnClicked++
 					if botBtnClicked < 2 {
 						// Only consume one click at any one time.
+						err := beeep.Beep(beeep.DefaultFreq, beeep.DefaultDuration)
+						if err != nil {
+							fmt.Println("Beep Error: ", err)
+						}
 						win.handleStartStop(true)
 					}
 				}
@@ -398,7 +400,9 @@ func (win *Window) Loop() error {
 				e.Frame(gtx.Ops)
 				if first {
 					first = false
-					// notify(StartupNotification, fmt.Sprintf("Leprechaun v%s", getVersion()))
+					// Android and linux (dbus) notification
+					notify(StartupNotification, fmt.Sprintf("Leprechaun v%s", getVersion()))
+					// Windows, macOS and unix (also dbus) notification
 				}
 			}
 		}
@@ -488,15 +492,20 @@ func (win *Window) handleStartStop(userEvent bool) {
 		return
 	}
 	if win.botState == Stopped && !botIsStopping {
-		logView.SetText("")
+		logViewContents = []material.LabelStyle{} // Reset log view
 
 		// Start Leprechaun in the background
 		go win.runBot()
 
 		startStopbutton.Background = ColorRed
-		// notify(BotNotification, "Leprechaun is running...")
+		notify(BotNotification, "Leprechaun is running...")
+		err := beeep.Notify("Leprechaun", "Leprechaun is running...", "assets/information.png")
+		if err != nil {
+			log.Println(err)
+		}
 		win.botState = Running
 		botBtnClicked = 0 // reset btn clicks
+		win.env.redraw()
 	} else {
 		if botIsStopping {
 			return
@@ -518,7 +527,7 @@ func (win *Window) handleStartStop(userEvent bool) {
 		}
 		startStopbutton.Background = origStartBtnColor
 		time.AfterFunc(time.Second*time.Duration(2), func() {
-			// notify(BotNotification, "Leprechaun has stopped.")
+			notify(BotNotification, "Leprechaun has stopped.")
 		})
 		botIsStopping = false
 		botBtnClicked = 0

@@ -160,7 +160,7 @@ func (win *Window) initWidgets() {
 
 }
 func (win *Window) layoutMainWindow(gtx layout.Context) layout.Dimensions {
-	// Main window section, holds log view and stop button
+	// Main window section, holds the log view
 	padding := layout.UniformInset(unit.Dp(2))
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(func(gtx C) D {

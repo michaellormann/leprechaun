@@ -7,28 +7,96 @@ TODO: Implement Fuzzy Logic version.
 */
 
 import (
+	"time"
+
 	"github.com/VividCortex/ewma"
 )
 
-// SIGNAL are signals emited by the Emit function that tell the bot what to do
-type SIGNAL string
+// Analyzer defines the interface for an arbitrary analysis plugin
+// the `Analyze` function takes in a list of historical prices of any asset
+// the `PriceInterval` and `NumPrices` fields specify the duration between each
+// price point and the number of prices to retrieve, and the `Emit` function
+// returns the signal based on the analysis done.
+type Analyzer interface {
+	// PriceDimensions returns two parameters. The number of past prices to be retrieved, and
+	// the interval between each price point.
+	PriceDimensions() (int, time.Duration)
+	// Analyze is passed the historical price data received from the exchange and presumably
+	// does the technical analysis of the price data
+	Analyze(prices []float64) error
+	// Emit returns the final market signal based on the analysis
+	Emit() SIGNAL
+}
+
+// SIGNAL is emitted by the Emit function based on results from the technical analysis
+//  that tell the bot what to do
+type SIGNAL int
+
+const (
+	SignalWait SIGNAL = iota
+	SignalBuy
+	SignalSell
+)
+
+// Emit2 ...
+func (cl *Client) Emit2(al Analyzer) (signal SIGNAL, err error) {
+	retries := 3
+	var (
+		prices    []float64
+		pricesErr error
+	)
+	for errCount := 0; errCount < retries; errCount++ {
+		prices, pricesErr = cl.PreviousPrices(al.PriceDimensions())
+		if cancelled() {
+			return SignalWait, ErrCancelled
+		}
+		if err == nil && pricesErr == nil {
+			break
+		}
+	}
+	if err != nil {
+		debug("An error occured while retrieving price data from the exchange. Please check your network connection!", err.Error())
+		return SignalWait, err
+	}
+
+	// Do analysis
+	err = al.Analyze(prices)
+	if err != nil {
+		debugf("Analysis incomplete, due to error: (%v)", err)
+		return SignalWait, err
+	}
+	// Emit the signal
+	return al.Emit(), nil
+
+}
+
+// $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
 
 // PricePosition indicates whether the current price is above or below the moving average.
 type PricePosition struct {
 	above, below, stable bool
 }
 
-var (
-	// WaitSignal tells Leprechaun to wait
-	WaitSignal SIGNAL = "WAIT"
-	// BuySignal tells Leprechaun to wait
-	BuySignal SIGNAL = "BUY"
-	// SellSignal tells Leprechaun to wait
-	SellSignal SIGNAL = "SELL"
-)
+type DefaultAnalysisPlugin struct {
+	NumPrices     int           // Number of historical price points to be analyzed
+	PriceInterval time.Duration // Time interval between each price point
+	prices        []float64
+	movingAverage float64
+	mAvgWindow    int // Moving Average window
+	score         int
+}
+
+// AnalysisPlugin returns the analyzer object we will use for our bot.
+// The returned object must satisfy the Analyzer interface.
+func (bot *Bot) AnalysisPlugin() Analyzer {
+	return &DefaultAnalysisPlugin{
+		NumPrices:     11,
+		PriceInterval: time.Duration(25) * time.Minute,
+	}
+}
 
 // analyze examines market data and determines whether there is an uptrend of downtrend of price
-func analyze(prices []float64) (score int64) {
+func Analyze(prices []float64) (score int64) {
 	// todo:: just analyze price trend without any ema
 	// It is helpful to get an odd number of prices to ensure there is
 	// always a clear price trend. It is possible for half of an even nunmber
@@ -73,18 +141,18 @@ func (cl *Client) Emit() (signal SIGNAL, err error) {
 		pricesErr    error
 	)
 	for errCount := 0; errCount < 3; errCount++ {
-		prices, pricesErr = cl.PreviousPrices(11, 25)
+		prices, pricesErr = cl.PreviousPrices(11, time.Duration(25)*time.Minute)
 		currentPrice, err = cl.CurrentPrice()
 		if cancelled() {
-			return WaitSignal, ErrCancelled
+			return SignalWait, ErrCancelled
 		}
 		if err == nil && pricesErr == nil {
 			break
 		}
 	}
 	if err != nil {
-		debug("Could not retrieve price data from the exchange. Please check your network connection!", err.Error())
-		return WaitSignal, err
+		debug("An error occured while retrieving price data from the exchange. Please check your network connection!", err.Error())
+		return SignalWait, err
 	}
 	// Price position.
 	pos := PricePosition{}
@@ -111,20 +179,20 @@ func (cl *Client) Emit() (signal SIGNAL, err error) {
 	if score < 0 {
 		// Price trend is downward
 		if pos.above {
-			signal = SellSignal
+			signal = SignalSell
 		} else if pos.below {
-			signal = BuySignal
+			signal = SignalBuy
 		} else {
-			signal = WaitSignal
+			signal = SignalWait
 		}
 	} else if score > 0 {
 		// Price trend is upward
 		if pos.above {
-			signal = SellSignal
+			signal = SignalSell
 		} else if pos.below {
-			signal = BuySignal
+			signal = SignalBuy
 		} else {
-			signal = WaitSignal
+			signal = SignalWait
 		}
 	} else {
 		// Price direction is indeterminate

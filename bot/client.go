@@ -395,17 +395,14 @@ func (cl *Client) AccountID() (ID map[string]string, err error) {
 // The price is determined from executed trades `interval` minutes apart,
 // parameter `num` specifies the number of prices to be retrieved.
 // For example: num=10, interval=5 gets prices over the last 50 minutes.
-func (cl *Client) PreviousPrices(num, interval int) (prices []float64, err error) {
-	priceIntervalMin := time.Duration(interval) * time.Minute
-	// mediumInterval := time.Duration(interval) * time.Hour
-	// longInterval := time.Duration(interval) * 24 * time.Hour
+func (cl *Client) PreviousPrices(num int, interval time.Duration) (prices []float64, err error) {
 
 	timestamps := []luno.Time{}
 	allTrades := map[luno.Time]luno.Trade{}
 	// Oldest first
 	for i := num; i > 0; i-- {
 		// -----------Currently using short interval for testing--------------
-		timestamps = append(timestamps, luno.Time(time.Now().Add(time.Duration(-i)*priceIntervalMin)))
+		timestamps = append(timestamps, luno.Time(time.Now().Add(time.Duration(-i)*interval)))
 		// luno.Time(time.Now().Add(-24 * time.Hour))
 	}
 	var lastTrade luno.Trade
@@ -414,9 +411,7 @@ func (cl *Client) PreviousPrices(num, interval int) (prices []float64, err error
 		req := luno.ListTradesRequest{Pair: cl.Pair, Since: timestamp}
 		res, err := cl.ListTrades(ctx, &req)
 		if err != nil {
-			debug("Could not retrieve last ", num, " prices (15 min) from the exchange")
-			debug(err)
-			return prices, ErrNetworkFailed
+			return []float64{}, ErrNetworkFailed
 		}
 		noTrades := len(res.Trades)
 		if noTrades > 0 {
@@ -434,6 +429,13 @@ func (cl *Client) PreviousPrices(num, interval int) (prices []float64, err error
 			allTrades[timestamp] = lastTrade
 		}
 	}
+	// First append the current price to the list.
+	currentPrice, err := cl.CurrentPrice()
+	if err != nil {
+		return prices, err
+	}
+	prices = append(prices, currentPrice)
+
 	for _, trade := range allTrades {
 		prices = append(prices, trade.Price.Float64())
 	}
