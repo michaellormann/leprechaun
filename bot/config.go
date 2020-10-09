@@ -64,6 +64,7 @@ type Configuration struct {
 	LogDir               string
 	keyStore             string
 	configFile           string
+	TradingMode          TradeMode
 }
 
 // ErrNoSavedSettings is returned by the load settigs function when it can't find any saved settings on file.
@@ -93,6 +94,7 @@ func (c *Configuration) DefaultSettings(appDir string) error {
 		RandomSnooze:  true,
 		SnoozePeriod:  5,
 		Verbose:       true,
+		TradingMode:   TrendFollowing,
 	}
 	if runtime.GOOS == "android" {
 		conf.Android = true
@@ -130,6 +132,7 @@ func (c *Configuration) TestConfig(appDir string) error {
 	c.RandomSnooze = true
 	c.SnoozePeriod = 5
 	c.Verbose = true
+	c.TradingMode = TrendFollowing
 	if runtime.GOOS == "android" {
 		c.Android = true
 	} else {
@@ -200,6 +203,7 @@ func (c *Configuration) Update(copy *Configuration, isDefault bool) (err error) 
 	c.SnoozeTimes, c.CurrencyName = DefaultSnoozeTimes, DefaultCurrencyName
 	c.CurrencyCode, c.Verbose = DefaultCurrencyCode, copy.Verbose
 	c.keyStore, c.ExitOnInitFailed = copy.keyStore, copy.ExitOnInitFailed
+	c.TradingMode = copy.TradingMode
 	if copy.AppDir != "" && !isDefault {
 		c.SetAppDir(filepath.Dir(copy.AppDir))
 	}

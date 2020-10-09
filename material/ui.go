@@ -67,10 +67,10 @@ var (
 var (
 	exitBtn                = new(widget.Clickable)
 	restoreDefaultBtn      = new(widget.Clickable)
-	viewLogBtn             = new(widget.Clickable)
+	viewLedgerBtn          = new(widget.Clickable)
 	botIsStopping     bool = false
 	botBtnClicked          = 0
-	viewLogsClicked        = false
+	viewLedgerClicked      = false
 )
 
 var (
@@ -236,15 +236,15 @@ func (win *Window) createPages() {
 				Icon: StatsIcon,
 			},
 			layout: func(gtx C) D {
-				if viewLogsClicked {
-					return win.layoutLogView(gtx)
+				if viewLedgerClicked {
+					return win.layoutLedgerView(gtx)
 				}
 				return win.layoutStatsWindow(gtx)
 			},
 			Overflow: []materials.OverflowAction{
 				{
-					Name: "View log",
-					Tag:  viewLogBtn,
+					Name: "View ledger",
+					Tag:  viewLedgerBtn,
 				},
 			},
 		},
@@ -326,8 +326,8 @@ func (win *Window) Loop() error {
 						if win.settingsPage != MainSettingsView {
 							win.settingsPage = MainSettingsView
 						}
-						if viewLogsClicked == true {
-							viewLogsClicked = false
+						if viewLedgerClicked == true {
+							viewLedgerClicked = false
 						}
 					case materials.AppBarOverflowActionClicked:
 						switch event.Tag {
@@ -337,10 +337,10 @@ func (win *Window) Loop() error {
 						case restoreDefaultBtn:
 							err := win.restoreDefaulSettings()
 							if err != nil {
-								alert(gtx, "Error! Could not restore default settings", ColorDanger)
+								win.alert(gtx, "Error! Could not restore default settings", ColorDanger)
 							}
-						case viewLogBtn:
-							viewLogsClicked = true
+						case viewLedgerBtn:
+							viewLedgerClicked = true
 							win.topBar.ToggleContextual(gtx.Now, "Logs")
 						}
 					}
@@ -350,9 +350,11 @@ func (win *Window) Loop() error {
 					botBtnClicked++
 					if botBtnClicked < 2 {
 						// Only consume one click at any one time.
-						err := beeep.Beep(beeep.DefaultFreq, beeep.DefaultDuration)
-						if err != nil {
-							fmt.Println("Beep Error: ", err)
+						if win.platform != "android" {
+							err := beeep.Beep(beeep.DefaultFreq, beeep.DefaultDuration)
+							if err != nil {
+								fmt.Println("Beep Error: ", err)
+							}
 						}
 						win.handleStartStop(true)
 					}
@@ -623,7 +625,7 @@ func (win *Window) saveUserSettings(gtx layout.Context) D {
 		cfg.ProfitMargin = float64dp(float64(profitMarginFloat.Value/100), 3)
 		cfg.PurchaseUnit, err = strconv.ParseFloat(purchaseUnitEdit.Editor.Text(), 64)
 		if err != nil {
-			return alert(gtx, "Invalid value for purchase unit", ColorDanger)
+			return win.alert(gtx, "Invalid value for purchase unit", ColorDanger)
 		}
 		for _, editor := range apiConfigFields {
 			switch editor.Name {
@@ -640,12 +642,18 @@ func (win *Window) saveUserSettings(gtx layout.Context) D {
 				cfg.AssetsToTrade = append(cfg.AssetsToTrade, assetCodes[c.asset])
 			}
 		}
+		switch tradeModeGroup.Value {
+		case "trend_following":
+			cfg.TradingMode = leper.TrendFollowing
+		case "contrarian":
+			cfg.TradingMode = leper.Contrarian
+		}
 	}
 
 	// Update Leprechuan's settings
 	updateErr := win.cfg.Update(cfg, false)
 	if updateErr != nil {
-		return alert(gtx, err.Error(), ColorRed)
+		return win.alert(gtx, err.Error(), ColorRed)
 	}
 
 	win.cfg.Save()

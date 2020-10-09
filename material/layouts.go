@@ -24,8 +24,7 @@ import (
 var (
 	logView         *widget.Editor
 	loadLogContents sync.Once
-	LogContents     bytes.Buffer
-	th              *material.Theme
+	logContents     bytes.Buffer
 	startStopbutton iconButton
 	pad             layout.Inset
 	closeButton     = new(widget.Clickable)
@@ -61,6 +60,7 @@ var (
 	applySettingsButton           *widget.Clickable
 	purchaseUnitEdit              *Editor
 	profitMarginFloat             *widget.Float
+	tradeModeGroup                *widget.Enum
 	snooozePeriodFloat            *widget.Float
 	randomSnoozeSwitch            *widget.Bool
 	displayLogSwitch              *widget.Bool
@@ -127,7 +127,7 @@ var (
 // configure window headers
 var (
 	profitMarginHeader, randomSnoozeheader, snoozePeriodHeader *widgetHeader
-	displayLogHeader                                           *widgetHeader
+	displayLogHeader, tradeModesHeader                         *widgetHeader
 )
 
 var (
@@ -158,6 +158,7 @@ func (win *Window) initWidgets() {
 	randomSnoozeheader = win.newWidgetHeader("Let Leprechaun choose snooze periods randomly", "random snooze")
 	snoozePeriodHeader = win.newWidgetHeader("Choose how long you want Leprechaun to snooze between each trading round:", "snooze interval")
 	displayLogHeader = win.newWidgetHeader("Display Leprechaun's activity log on the screen.", "display log")
+	tradeModesHeader = win.newWidgetHeader("Trading mode (see help section for more info)", "trade mode")
 
 	tradeSettingsMenuItem = win.newMenuItem("Trade Settings")
 	generalSettingsMenuItem = win.newMenuItem("General Settings")
@@ -218,13 +219,19 @@ func (win *Window) configurePageSetup() {
 	snooozePeriodFloat = &widget.Float{Value: float32(win.cfg.SnoozePeriod)}
 	randomSnoozeSwitch = &widget.Bool{Value: win.cfg.RandomSnooze}
 	displayLogSwitch = &widget.Bool{Value: win.cfg.Verbose}
+	tradeModeGroup = new(widget.Enum)
+	switch win.cfg.TradingMode {
+	case leper.TrendFollowing:
+		tradeModeGroup.Value = "trend_following"
+	case leper.Contrarian:
+		tradeModeGroup.Value = "contrarian"
+	}
 	applySettingsButton = &widget.Clickable{}
 
 	defaultSettingsRestored = false
 }
 
 func (win *Window) layoutSettingsWindow(gtx C) D {
-	// origThemeColor := th.Color
 	win.initGeneralSettingsWidgets(gtx)
 	win.initTradeSettingsWidgets(gtx)
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
@@ -303,7 +310,6 @@ func (win *Window) initGeneralSettingsWidgets(gtx layout.Context) {
 func (win *Window) initTradeSettingsWidgets(gtx layout.Context) {
 	textFieldPadding := layout.UniformInset(unit.Dp(3))
 	tradeSettingsWidgets = []layout.Widget{
-		// material.Caption(th, "Configure Leprechaun").Layout,
 		func(gtx C) D {
 			return configList1.Layout(gtx, len(apiConfigFields), func(gtx C, i int) D {
 				return textFieldPadding.Layout(gtx, apiConfigFields[i].Layout)
@@ -346,6 +352,20 @@ func (win *Window) initTradeSettingsWidgets(gtx layout.Context) {
 								material.Body1(win.theme, fmt.Sprintf("%.2f%s", profitMarginFloat.Value, "%")).Layout,
 							)
 						}),
+					)
+				}),
+			)
+		},
+		// Trade mode options
+		func(gtx C) D {
+			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+				layout.Rigid(func(gtx C) D {
+					return tradeModesHeader.Layout(gtx)
+				}),
+				layout.Rigid(func(gtx C) D {
+					return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
+						layout.Rigid(material.RadioButton(win.theme, tradeModeGroup, "trend_following", "Trend Following").Layout),
+						layout.Rigid(material.RadioButton(win.theme, tradeModeGroup, "contrarian", "Contrarian").Layout),
 					)
 				}),
 			)
@@ -394,39 +414,64 @@ func (win *Window) layoutConfigureWindow(gtx layout.Context) layout.Dimensions {
 	// 		}),
 	// 	)
 	// }
-	outerWidgets := []layout.Widget{
-		func(gtx layout.Context) D {
+	// outerWidgets := []layout.Widget{
+	// 	func(gtx layout.Context) D {
+	// 		return mainConfigList.Layout(gtx, len(widgets), func(gtx C, i int) D {
+	// 			return pad.Layout(gtx, widgets[i])
+	// 		})
+	// 	},
+	// 	func(gtx C) D {
+	// 		return D{}
+	// 	},
+	// 	func(gtx C) D {
+	// 		return D{}
+	// 	},
+	// 	func(gtx C) D {
+	// 		if inputsValidated {
+	// 			// btn := material.IconButton(win.theme, doNothingButton, savedIcon)
+	// 			btn := material.Button(win.theme, doNothingButton, savedTxt)
+	// 			btn.Background = ColorGreen
+	// 			applyBtnClicked = false
+	// 			return btn.Layout(gtx)
+	// 		}
+	// 		if !inputsValidated && applyBtnClicked {
+	// 			btn := material.Button(win.theme, doNothingButton, "Invalid values!")
+	// 			btn.Background = ColorDanger
+	// 			time.AfterFunc(2*time.Second, func() { applyBtnClicked = false })
+	// 			return btn.Layout(gtx)
+	// 		}
+	// 		return material.Button(win.theme, applySettingsButton, saveBtnTxt).Layout(gtx)
+	// 	},
+	// }
+	// return masterConfigList.Layout(gtx, len(outerWidgets), func(gtx C, i int) D {
+	// 	// gtx.Constraints.Max.Y = gtx.Px(mainWindowHeight)
+	// 	return pad.Layout(gtx, outerWidgets[i])
+	// })
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Flexed(1, func(gtx layout.Context) D {
 			return mainConfigList.Layout(gtx, len(widgets), func(gtx C, i int) D {
 				return pad.Layout(gtx, widgets[i])
 			})
-		},
-		func(gtx C) D {
-			return D{}
-		},
-		func(gtx C) D {
-			return D{}
-		},
-		func(gtx C) D {
-			if inputsValidated {
-				// btn := material.IconButton(win.theme, doNothingButton, savedIcon)
-				btn := material.Button(win.theme, doNothingButton, savedTxt)
-				btn.Background = ColorGreen
-				applyBtnClicked = false
-				return btn.Layout(gtx)
-			}
-			if !inputsValidated && applyBtnClicked {
-				btn := material.Button(win.theme, doNothingButton, "Invalid values!")
-				btn.Background = ColorDanger
-				time.AfterFunc(2*time.Second, func() { applyBtnClicked = false })
-				return btn.Layout(gtx)
-			}
-			return material.Button(win.theme, applySettingsButton, saveBtnTxt).Layout(gtx)
-		},
-	}
-	return masterConfigList.Layout(gtx, len(outerWidgets), func(gtx C, i int) D {
-		// gtx.Constraints.Max.Y = gtx.Px(mainWindowHeight)
-		return pad.Layout(gtx, outerWidgets[i])
-	})
+		}),
+		layout.Rigid(
+			func(gtx C) D {
+				if inputsValidated {
+					// btn := material.IconButton(win.theme, doNothingButton, savedIcon)
+					btn := material.Button(win.theme, doNothingButton, savedTxt)
+					btn.Background = ColorGreen
+					applyBtnClicked = false
+					return btn.Layout(gtx)
+				}
+				if !inputsValidated && applyBtnClicked {
+					btn := material.Button(win.theme, doNothingButton, "Invalid values!")
+					btn.Background = ColorDanger
+					time.AfterFunc(2*time.Second, func() { applyBtnClicked = false })
+					return btn.Layout(gtx)
+				}
+				return material.Button(win.theme, applySettingsButton, saveBtnTxt).Layout(gtx)
+			},
+		),
+	)
 }
 
 func (win *Window) statsPageSetup() {
@@ -445,7 +490,7 @@ func (win *Window) statsPageSetup() {
 
 func (win *Window) layoutStatsWindow(gtx layout.Context) layout.Dimensions {
 	if modalOpened {
-		return win.layoutLogView(gtx)
+		return win.layoutLedgerView(gtx)
 	}
 	collapsibles := []layout.FlexChild{
 		// History collapsible
@@ -596,8 +641,6 @@ func (win *Window) layoutAboutWindow(gtx layout.Context) layout.Dimensions {
 			return lbl.Layout(gtx)
 		}),
 		layout.Rigid(func(gtx C) D {
-			// th.Color.Primary = ColorGreen
-			// th.Color.InvText = ColorBlue
 			lbl := material.Caption(win.theme, getVersion())
 			return lbl.Layout(gtx)
 		}),
@@ -724,23 +767,24 @@ func (win *Window) loadStats() {
 func (win *Window) readLogFile() {
 	data, err := ioutil.ReadFile(filepath.Join(win.cfg.LogDir, "log.txt"))
 	if err != nil {
-		LogContents.WriteString("Error! Could not open log file.")
+		logContents.WriteString("Error! Could not open log file.")
 		return
 	}
-	LogContents.Write(data)
+	logContents.Write(data)
+
+	logView.SetText(logContents.String())
 	return
 }
 
-func (win *Window) layoutLogView(gtx layout.Context) D {
+func (win *Window) layoutLedgerView(gtx layout.Context) D {
 	widgets := []layout.FlexChild{
 		layout.Rigid(func(gtx C) D {
-			ed := material.Editor(win.theme, logView, "log")
+			ed := material.Editor(win.theme, logView, "Ledger")
 			ed.TextSize = unit.Dp(11)
 			return ed.Layout(gtx)
 		}),
 	}
 	loadLogContents.Do(win.readLogFile)
-	logView.SetText(LogContents.String())
 
 	return modalLogViewList.Layout(gtx, len(widgets), func(gtx C, i int) D {
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx, widgets[i])

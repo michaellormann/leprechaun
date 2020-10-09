@@ -284,10 +284,10 @@ func NewBot() *Bot {
 		name:     "Leprechaun",
 		exchange: "Luno",
 		id:       rand.Intn(1000),
-		analysisPlugin: &DefaultAnalysisPlugin{
-			NumPrices:     11,
-			PriceInterval: time.Duration(25) * time.Minute,
-		},
+		analysisPlugin: DefaultAnalysisPlugin(
+			11,
+			time.Duration(25)*time.Minute,
+			config.TradingMode),
 	}
 	return bot
 }
@@ -437,6 +437,7 @@ func (bot *Bot) Emit(cl *Client) (signal SIGNAL, err error) {
 	}
 
 	// Do analysis
+	fmt.Println(prices)
 	err = bot.analysisPlugin.Analyze(prices)
 	if err != nil {
 		debugf("Analysis incomplete, due to error: (%v)", err)

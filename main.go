@@ -52,7 +52,7 @@ func newApp(test bool) *App {
 		test:        test,
 		logBackends: map[string]*log.Logger{},
 		logRotators: map[string]*rotator.Rotator{},
-		fontFile:    filepath.Join(wd, "/assets/fonts/source_sans_pro_semibold.otf"),
+		fontFile:    "./assets/fonts/source_sans_pro_semibold.otf",
 		config:      new(leprechaun.Configuration),
 		cwd:         wd,
 		subsystems: []string{
@@ -65,7 +65,7 @@ func newApp(test bool) *App {
 }
 
 func main() {
-	myApp := newApp(true)
+	myApp := newApp(false)
 
 	d, err := app.DataDir()
 	if err != nil {
@@ -121,6 +121,7 @@ func (a *App) loadFont() (err error) {
 	return nil
 }
 
+// Theme loads the custom font if any
 func (a *App) Theme() *material.Theme {
 	err := a.loadFont()
 	if err != nil || len(a.font) == 0 {

@@ -370,7 +370,7 @@ func fill(gtx layout.Context, col color.RGBA) layout.Dimensions {
 	return layout.Dimensions{Size: d}
 }
 
-func alert(gtx layout.Context, txt string, bgColor color.RGBA) layout.Dimensions {
+func (win *Window) alert(gtx layout.Context, txt string, bgColor color.RGBA) layout.Dimensions {
 	return layout.Stack{}.Layout(gtx,
 		layout.Expanded(func(gtx C) D {
 			clip.RRect{Rect: f32.Rectangle{Max: f32.Point{
@@ -386,9 +386,9 @@ func alert(gtx layout.Context, txt string, bgColor color.RGBA) layout.Dimensions
 			return layout.Center.Layout(gtx, func(gtx C) D {
 				return layout.UniformInset(unit.Dp(8)).Layout(gtx, func(gtx C) D {
 
-					lbl := material.Body2(th, txt)
+					lbl := material.Body2(win.theme, txt)
 					lbl.Alignment = text.Start
-					lbl.Color = th.Color.Primary
+					lbl.Color = win.theme.Color.Primary
 					return lbl.Layout(gtx)
 				})
 			})
