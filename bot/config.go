@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+
+	"github.com/Tkanos/gonfig"
 )
 
 func init() {
@@ -220,6 +222,7 @@ func (c *Configuration) LoadConfig(appDir string) (err error) {
 		return ErrNoSavedSettings
 	}
 	f, err := os.OpenFile(c.configFile, os.O_RDWR, 0644)
+	gonfig.GetConf(c.configFile, &c)
 	defer f.Close()
 	if err != nil {
 		return err
