@@ -1,4 +1,4 @@
-package leprechaun
+package core
 
 /* Leprechaun is a trading bot built upon the luno API.
 It uses technical analysis to monitor price trends of crypto assets and executes trades based

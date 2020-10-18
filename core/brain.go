@@ -1,4 +1,4 @@
-package leprechaun
+package core
 
 /* This file is part of Leprechaun.
 *  @author: Michael Lormann
@@ -34,8 +34,11 @@ type Analyzer interface {
 type SIGNAL string
 
 const (
+	// SignalWait ...
 	SignalWait SIGNAL = "WAIT"
-	SignalBuy  SIGNAL = "BUY"
+	// SignalBuy ...
+	SignalBuy SIGNAL = "BUY"
+	// SignalSell ...
 	SignalSell SIGNAL = "SELL"
 )
 

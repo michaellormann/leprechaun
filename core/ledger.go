@@ -1,4 +1,4 @@
-package leprechaun
+package core
 
 /* This file is part of Leprechaun.
 *  @author: Michael Lormann

@@ -180,14 +180,14 @@ type Page struct {
 
 func (win *Window) createPages() {
 	win.pages = []Page{
-		Page{
+		{
 			NavItem: materials.NavItem{
 				Name: "Leprechaun",
 				Icon: HomeIcon,
 			},
 			layout: win.layoutMainWindow,
 			Actions: []materials.AppBarAction{
-				materials.AppBarAction{
+				{
 					OverflowAction: materials.OverflowAction{
 						Name: "Start Bot",
 						Tag:  closeButton,
@@ -205,7 +205,7 @@ func (win *Window) createPages() {
 			},
 		},
 		// Settings Page
-		Page{
+		{
 			NavItem: materials.NavItem{
 				Name: "Settings",
 				Icon: SettingsIcon,
@@ -230,7 +230,7 @@ func (win *Window) createPages() {
 			},
 		},
 		// Stats Page
-		Page{
+		{
 			NavItem: materials.NavItem{
 				Name: "Stats",
 				Icon: StatsIcon,
@@ -249,7 +249,7 @@ func (win *Window) createPages() {
 			},
 		},
 		// About Page
-		Page{
+		{
 			NavItem: materials.NavItem{
 				Name: "About",
 				Icon: OtherIcon,

@@ -1,4 +1,4 @@
-package leprechaun
+package core
 
 /* This file is part of Leprechaun.
 *  @author: Michael Lormann
@@ -252,6 +252,20 @@ func (cl *Client) Sell(rec *Record) (sold bool) {
 		debugf("Could not record new sale of %s", asset)
 	}
 	return
+}
+
+// goLong buys an asset at a specific price with the intention that the asset will
+// later be sold at a higher price to realize a profit.
+func (cl *Client) goLong() Record {
+	// goLong
+	return NewRecord(cl.asset, 0.000, time.Now().String(), 0.000, "ABC")
+}
+
+// goShort sells an asset at a certain price with the aim of repurchasing the same
+// volume of asset sold at a lower price in the future to realize a profit.
+func (cl *Client) goShort() Record {
+	// goShort
+	return NewRecord(cl.asset, 0.000, time.Now().String(), 0.000, "ABC")
 }
 
 // Returns a string representation of a Client struct

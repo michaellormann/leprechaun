@@ -1,4 +1,4 @@
-package leprechaun
+package core
 
 import (
 	"encoding/json"
