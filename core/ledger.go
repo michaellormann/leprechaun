@@ -28,14 +28,16 @@ type Ledger struct {
 // SQLITE operations.
 var (
 	sqlDatabaseName        = "Leprechaun.Ledger"
-	databaseInit    string = "CREATE TABLE RECORDS (ASSET, COST, ID, PRICE, SALE_ID, SOLD, STATUS, TIMESTAMP, VOLUME)"
-	recordInsert           = "INSERT INTO RECORDS VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)"
+	databaseInit    string = "CREATE TABLE RECORDS (ASSET, COST, ID, PRICE, SALE_ID, SOLD, STATUS, TIMESTAMP, VOLUME, TYPE, TRIGGER_PRICE)"
+	recordInsert           = "INSERT INTO RECORDS VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 	idSearch        string = "SELECT * FROM RECORDS WHERE ID = ?"
 	// abs(PRICE) + abs(PRICE) * `margin` adjusts the price by profit margin provided.
 	// E.g. to adjust a price of 2_000_000 by a 1% margin, we have 2_000_000 + 2_000_000 * 0.01 =
 	// giving an adjusted price of 2_020_000
 	viableRecordSearch = "SELECT * FROM RECORDS WHERE ASSET = ? AND abs(PRICE) + abs(PRICE) * ? < ?"
-	getAllRecords      = "SELECT * FROM RECORDS"
+	getAllRecordsOp    = "SELECT * FROM RECORDS"
+	typeSearchOp       = "SELECT * FROM RECORDS WHERE ASSET = ? AND TYPE = ?"
+	deleteRecordOp     = "DELETE FROM RECORDS WHERE ID = ?"
 )
 
 // Ledger returns a new ledger handle
@@ -69,7 +71,7 @@ func (l *Ledger) ViableRecords(asset string, price float64) (records []Record, e
 	defer rows.Close()
 	for rows.Next() {
 		rec := Record{}
-		err = rows.Scan(&rec.Asset, &rec.Cost, &rec.ID, &rec.Price, &rec.SaleID, &rec.Sold, &rec.Status, &rec.Timestamp, &rec.Volume)
+		err = scanRows(rows, rec)
 		if err != nil {
 			return
 		}
@@ -77,6 +79,11 @@ func (l *Ledger) ViableRecords(asset string, price float64) (records []Record, e
 	}
 	tx.Commit()
 	return
+}
+
+func scanRows(rows *sql.Rows, rec Record) (err error) {
+	err = rows.Scan(&rec.Asset, &rec.Cost, &rec.ID, &rec.Price, &rec.SaleID, &rec.Sold, &rec.Status, &rec.Timestamp, &rec.Volume, &rec.Type, &rec.TriggerPrice)
+	return err
 }
 
 // GetRecordByID returns a record from the database with the `id` provided.
@@ -94,13 +101,67 @@ func (l *Ledger) GetRecordByID(id string) (rec Record, err error) {
 		return
 	}
 	defer stmt.Close()
-	err = stmt.QueryRow(id).Scan(&rec.Asset, &rec.Cost, &rec.ID, &rec.Price, &rec.SaleID, &rec.Sold, &rec.Status, &rec.Timestamp, &rec.Volume)
+	err = stmt.QueryRow(id).Scan(&rec.Asset, &rec.Cost, &rec.ID, &rec.Price, &rec.SaleID, &rec.Sold, &rec.Status, &rec.Timestamp, &rec.Volume, &rec.Type, &rec.TriggerPrice)
 	if err != nil {
 		return
 	}
 	tx.Commit()
 	debugf("%#v\n", rec)
 
+	return
+}
+
+// DeleteRecord removes the record with the provided `ID` from the ledger.
+func (l *Ledger) DeleteRecord(id string) (err error) {
+	if !l.isOpen {
+		l.loadDatabase()
+	}
+	tx, err := l.db.Begin()
+	if err != nil {
+		return
+	}
+	stmt, err := l.db.Prepare(deleteRecordOp)
+	defer stmt.Close()
+	if err != nil {
+		return
+	}
+	res, err := stmt.Exec(id)
+	if err != nil {
+		return
+	}
+	log.Printf("delete op: %v for record with id %s", res, id)
+	tx.Commit()
+	return
+}
+
+// GetRecordsByType retrieves records in the ledger by order type
+func (l *Ledger) GetRecordsByType(asset string, orderType OrderType) (records []Record, err error) {
+	if !l.isOpen {
+		l.loadDatabase()
+	}
+	tx, err := l.db.Begin()
+	if err != nil {
+		return
+	}
+	stmt, err := l.db.Prepare(typeSearchOp)
+	defer stmt.Close()
+	if err != nil {
+		return
+	}
+	rows, err := stmt.Query(asset, orderType)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		rec := Record{}
+		err = scanRows(rows, rec)
+		if err != nil {
+			return
+		}
+		records = append(records, rec)
+	}
+	tx.Commit()
 	return
 }
 
@@ -113,7 +174,7 @@ func (l *Ledger) AllRecords() (records []Record, err error) {
 	if err != nil {
 		return
 	}
-	stmt, err := l.db.Prepare(getAllRecords)
+	stmt, err := l.db.Prepare(getAllRecordsOp)
 	if err != nil {
 		return
 	}
@@ -125,7 +186,7 @@ func (l *Ledger) AllRecords() (records []Record, err error) {
 	defer rows.Close()
 	for rows.Next() {
 		rec := Record{}
-		err = rows.Scan(&rec.Asset, &rec.Cost, &rec.ID, &rec.Price, &rec.SaleID, &rec.Sold, &rec.Status, &rec.Timestamp, &rec.Volume)
+		err = scanRows(rows, rec)
 		if err != nil {
 			return
 		}
@@ -150,9 +211,11 @@ func (l *Ledger) AddRecord(rec Record) (err error) {
 		return
 	}
 	defer stmt.Close()
-	_, err = stmt.Exec(rec.Asset, rec.Cost, rec.ID, rec.Price, rec.SaleID, rec.Sold, rec.Status, rec.Timestamp, rec.Volume)
+	_, err = stmt.Exec(rec.Asset, rec.Cost, rec.ID, rec.Price, rec.SaleID, rec.Sold, rec.Status, rec.Timestamp, rec.Volume, rec.Type, rec.Timestamp)
 	if err != nil {
-		log.Fatal(err)
+		// log.Fatal(err)
+		debugf("Fatal error! could not add new record with id %s to the ledger. Check the luno order book for your order's details", rec.ID)
+		return err
 	}
 	tx.Commit()
 	return
@@ -194,7 +257,7 @@ func (l *Ledger) loadDatabase() {
 
 // NewSale saves a sale's profits to record
 func NewSale(asset, orderID, timestamp string, purchasePrice, purchaseVolume, salePrice, saleVolume float64) error {
-	entry := SaleEntry{Asset: asset, OrderID: orderID, Timestamp: timestamp, PurchasePrice: purchasePrice, PurchaseVolume: purchaseVolume,
+	entry := ProfitEntry{Asset: asset, OrderID: orderID, Timestamp: timestamp, PurchasePrice: purchasePrice, PurchaseVolume: purchaseVolume,
 		SalePrice: salePrice, SaleVolume: saleVolume}
 	// Collate all sales into a single all-time record
 	entry.PurchaseCost = entry.PurchasePrice * entry.PurchaseVolume
@@ -216,7 +279,7 @@ func NewSale(asset, orderID, timestamp string, purchasePrice, purchaseVolume, sa
 	defer statsFile.Close()
 
 	// Read previous stats from file
-	previousEntry := SaleEntry{}
+	previousEntry := ProfitEntry{}
 	err = json.NewDecoder(statsFile).Decode(&previousEntry)
 	if err != nil && err != io.EOF {
 		debug("Error! Json Decode Err", err)
@@ -252,7 +315,7 @@ func NewSale(asset, orderID, timestamp string, purchasePrice, purchaseVolume, sa
 		return err
 	}
 	defer salesFile.Close()
-	salesRecordStack := &SaleRecordStack{} // We only want to save 100 records at most
+	salesRecordStack := &ProfitRecordStack{} // We only want to save `maxRecordsToSave` records at most
 	// Read previous records from file
 	err = json.NewDecoder(salesFile).Decode(&salesRecordStack.records)
 	if err != nil && err != io.EOF {
@@ -260,7 +323,7 @@ func NewSale(asset, orderID, timestamp string, purchasePrice, purchaseVolume, sa
 	}
 	salesFile.Truncate(0)
 	_, err = salesFile.Seek(0, 0)
-	// Add the latest `SaleEntry` to the stack
+	// Add the latest `ProfitEntry` to the stack
 	salesRecordStack.appendRecord(&entry)
 	// save the sale record to file
 	err = json.NewEncoder(salesFile).Encode(&salesRecordStack.records)
@@ -271,7 +334,7 @@ func NewSale(asset, orderID, timestamp string, purchasePrice, purchaseVolume, sa
 }
 
 // GetSales returns historical records that have been saved to file.
-func GetSales() (records []*SaleEntry, err error) {
+func GetSales() (records []*ProfitEntry, err error) {
 	salesFileLoc := filepath.Join(config.DataDir, "sales.json")
 	salesFile, err := os.OpenFile(salesFileLoc, os.O_RDONLY, 0644)
 	if err != nil {
@@ -303,7 +366,7 @@ func GetStats(asset string) (string, error) {
 	statsFile := fmt.Sprintf("%s-stats.json", strings.ToLower(assetNames[asset]))
 	statsFile = filepath.Join(config.DataDir, statsFile)
 	entryFile, err := os.OpenFile(statsFile, os.O_RDONLY, 0644)
-	stats := SaleEntry{}
+	stats := ProfitEntry{}
 	err = json.NewDecoder(entryFile).Decode(&stats)
 	if err != nil && err != io.EOF {
 		return "", err
@@ -327,11 +390,64 @@ func GetStats(asset string) (string, error) {
 
 }
 
-// NewPurchase adds a new purchase record to file.
-// Only 100 most recent records are saved to file. (see the `recordStack.append` function)
-func NewPurchase(purchase Record) error {
+// NewPurchase adds a new (re)purchase record to file an calculates the profit made therein.
+// Only `maxRecordsToSave` most recent records are saved to file. (see the `recordStack.append` function)
+// func NewPurchase(purchase Record) error {
+func NewPurchase(asset, orderID, timestamp string, salePrice, saleVolume, purchasePrice, purchaseVolume float64) error {
+	entry := ProfitEntry{Asset: asset, OrderID: orderID, Timestamp: timestamp, PurchasePrice: purchasePrice, PurchaseVolume: purchaseVolume,
+		SalePrice: salePrice, SaleVolume: saleVolume}
+	// Collate all sales into a single all-time record
+	entry.PurchaseCost = entry.PurchasePrice * entry.PurchaseVolume
+	entry.SaleCost = entry.SalePrice * entry.SaleVolume
+	entry.Profit = entry.PurchaseCost - entry.SaleCost // Note. This is the reverse of the sale profit calculation.
+	debugf("Profit made from sale of %f %s is %f\n", entry.SaleVolume, assetNames[entry.Asset], entry.Profit)
+
+	if !exists(config.DataDir) {
+		os.MkdirAll(config.DataDir, 0755)
+	}
+
+	stats := fmt.Sprintf("%s-stats.json", strings.ToLower(assetNames[asset]))
+	stats = filepath.Join(config.DataDir, stats)
+	statsFile, err := os.OpenFile(stats, os.O_RDWR|os.O_CREATE, 0644)
+	if err != nil {
+		debug("Error! Could not open stats file!")
+		return err
+	}
+	defer statsFile.Close()
+
+	// Read previous stats from file
+	previousEntry := ProfitEntry{}
+	err = json.NewDecoder(statsFile).Decode(&previousEntry)
+	if err != nil && err != io.EOF {
+		debug("Error! Json Decode Err", err)
+		return err
+	}
+	err = statsFile.Truncate(0)
+	if err != nil {
+		debug("Error! Could not truncate stats file", err)
+		return err
+
+	}
+	if _, err := statsFile.Seek(0, 0); err != nil {
+		debug("Seek Error:", err)
+		return err
+	}
+	newEntry := entry
+	newEntry.Profit += previousEntry.Profit
+	newEntry.PurchaseCost += previousEntry.PurchaseCost
+	newEntry.PurchasePrice += previousEntry.PurchasePrice
+	newEntry.PurchaseVolume += previousEntry.PurchaseVolume
+	newEntry.SaleCost += previousEntry.SaleCost
+	newEntry.SalePrice += previousEntry.SalePrice
+	newEntry.SaleVolume += previousEntry.SaleVolume
+	err = json.NewEncoder(statsFile).Encode(newEntry)
+	if err != nil {
+		debug("Json Encode error", err)
+	}
+
+	// purchase record section
 	purchasesFileLoc := filepath.Join(config.DataDir, "purchases.json")
-	stack := &RecordStack{}
+	stack := &ProfitRecordStack{}
 	purchasesFile, err := os.OpenFile(purchasesFileLoc, os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
 		return err
@@ -344,14 +460,14 @@ func NewPurchase(purchase Record) error {
 	}
 	if err == io.EOF {
 		// There was no previous entry in the file
-		stack = &RecordStack{}
+		stack = &ProfitRecordStack{}
 	}
 	purchasesFile.Truncate(0)
 	_, err = purchasesFile.Seek(0, 0)
 	if err != nil {
 		return err
 	}
-	stack.appendRecord(purchase)
+	stack.appendRecord(&entry)
 	err = json.NewEncoder(purchasesFile).Encode(stack.records)
 	if err != nil {
 		return err
@@ -361,9 +477,9 @@ func NewPurchase(purchase Record) error {
 }
 
 // GetPurchases returns a list of past asset purchases made by leprechaun.
-func GetPurchases() ([]Record, error) {
+func GetPurchases() ([]*ProfitEntry, error) {
 	purchasesFileLoc := filepath.Join(config.DataDir, "purchases.json")
-	stack := new(RecordStack)
+	stack := new(ProfitRecordStack)
 	purchases := stack.records
 	purchasesFile, err := os.OpenFile(purchasesFileLoc, os.O_RDONLY, 0644)
 	if err != nil {
@@ -383,18 +499,18 @@ var (
 	maxRecordsToSave int = 100
 )
 
-// RecordStack holds a FIFO stack of at most 100 `Record` elements.
+// RecordStack holds a FIFO stack of at most `maxRecordsToSave` `Record` elements.
 type RecordStack struct {
 	records []Record
 }
 
-// SaleRecordStack holds a FIFO stack of at most 100 `SaleEntry` elements.
-type SaleRecordStack struct {
-	records []*SaleEntry
+// ProfitRecordStack holds a FIFO stack of at most `maxRecordsToSave` `ProfitEntry` elements.
+type ProfitRecordStack struct {
+	records []*ProfitEntry
 }
 
 // appendRecord appends a value of type T to a FIFO stack (actually a slice),
-//  with a max capacity of `100`
+//  with a max capacity of `maxRecordsToSave`
 // If the stacked is filled, it's first value is popped. Note, the slice
 // shouldn't be created with make(), but initialized like so: stack := []T
 func (st *RecordStack) appendRecord(rec Record) {
@@ -406,7 +522,7 @@ func (st *RecordStack) appendRecord(rec Record) {
 	st.records = append(st.records, rec)
 }
 
-func (stack *SaleRecordStack) appendRecord(entry *SaleEntry) {
+func (stack *ProfitRecordStack) appendRecord(entry *ProfitEntry) {
 	l := len(stack.records)
 	if l >= maxRecordsToSave {
 		x := l - maxRecordsToSave

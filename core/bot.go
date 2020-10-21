@@ -141,14 +141,17 @@ func (bot *Bot) Run(settings *Configuration) error {
 			}
 			cl := bot.clients[clientNo]
 			debugf("<========[ %s ]========>", cl.name)
+
 			feeInfo, err := cl.FeeInfo()
 			if err != nil {
 				debugf("Error! Could not retrieve fee info for %s. %v", cl.Pair, err)
 				continue
 			}
+
 			if cancelled() {
 				return ErrCancelled
 			}
+
 			takerFee, _ := strconv.ParseFloat(feeInfo.TakerFee, 64)
 			if initialRound {
 				// Luno charges a taker fee for market orders.
@@ -181,12 +184,13 @@ func (bot *Bot) Run(settings *Configuration) error {
 				UIChans.StoppedChan <- struct{}{}
 				return ErrInvalidPurchaseUnit
 			}
+			debugf("The current price of %s(%s) is %s %.3f\n", cl.name, cl.asset, cl.currency, currentPrice)
+
 			config.AdjustedPurchaseUnit = float64(config.PurchaseUnit) + (takerFee * float64(config.PurchaseUnit))
 			canPurchase, err := cl.CheckBalanceSufficiency()
 			if err != nil {
 				log.Println(err)
 			}
-			debugf("The current price of %s(%s) is %s %.3f\n", cl.name, cl.asset, cl.currency, currentPrice)
 			debug("Leprechaun is analyzing market data...")
 			signal, err = bot.Emit(&cl)
 			debugf("Recommended action for %s based on market analysis: %v", cl.name, signal)
@@ -197,12 +201,13 @@ func (bot *Bot) Run(settings *Configuration) error {
 			if cancelled() {
 				return ErrCancelled
 			}
-			if signal == SignalBuy {
+			// if signal == SignalBuy {
+			if signal == SignalLong {
 				// We can buy.
 				if canPurchase {
 					// Try to purchase `Client.asset`
 					purchaseVolume := config.AdjustedPurchaseUnit / currentPrice
-					record, err := cl.Purchase(currentPrice, purchaseVolume)
+					record, err := cl.GoLong(purchaseVolume)
 					// Quote Purchase
 					// record, err := cl.PurchaseQuote()
 					// if err != nil {
@@ -245,9 +250,12 @@ func (bot *Bot) Run(settings *Configuration) error {
 						cl.name, cl.currency, cl.fiatBalance)
 				}
 
-			} else if signal == SignalSell {
+				// } else if signal == SignalSell {
+			} else if signal == SignalShort {
 				// We can sell
-				bot.sellViableAssets(&cl, currentPrice)
+				// bot.sellViableAssets(&cl, currentPrice)
+				purchaseVolume := config.AdjustedPurchaseUnit / currentPrice
+				cl.GoShort(purchaseVolume)
 				if cancelled() {
 					return ErrCancelled
 				}
@@ -259,10 +267,16 @@ func (bot *Bot) Run(settings *Configuration) error {
 			if cancelled() {
 				return ErrCancelled
 			}
-			if signal != SignalSell {
-				// We should still check for viable sales in every round
-				bot.sellViableAssets(&cl, currentPrice)
+			// We try to complete any viable pending transaction in every round
+			err = bot.CompleteLongTrades(&cl)
+			if err != nil {
+				debugf("An error occured while trying to cleanup pending long trades. Reason: %v", err)
 			}
+			err = bot.CompleteShortTrades(&cl)
+			if err != nil {
+				debugf("An error occured while trying to cleanup pending short trades. Reason: %v", err)
+			}
+
 			if cancelled() {
 				return ErrCancelled
 			}
@@ -287,7 +301,7 @@ func NewBot() *Bot {
 		analysisPlugin: DefaultAnalysisPlugin(
 			11,
 			time.Duration(25)*time.Minute,
-			config.TradingMode),
+			config.Trade.TradingMode),
 	}
 	return bot
 }
@@ -377,35 +391,189 @@ func initClient(asset string) (client Client, err error) {
 	return
 }
 
-// TODO:: This function should be a goroutine
-func (bot *Bot) sellViableAssets(cl *Client, price float64) {
-	// First check if there are any viable assets in the ledger for sale.
-	debugf(`Leprechaun is checking the ledger for viable %s records...`, cl.name)
+// CompleteShortTrades completes the second part of a long trade. The purchased asset is sold
+// at the recorded trigger price
+func (bot *Bot) CompleteShortTrades(cl *Client) error {
 	ledger := bot.Ledger()
 	defer ledger.Save()
-	asset := cl.asset
-	viableRecords, err := ledger.ViableRecords(asset, price)
+
+	var (
+		viablePendingRecords = []Record{}
+	)
+	// Get pending records.
+	pendingRecords, err := ledger.GetRecordsByType(cl.asset, ShortOrder)
+	if cancelled() {
+		return ErrCancelled
+	}
 	if err != nil {
 		// TODO: Silently print error and return
 		debug(err)
-		debug("There are no records in the ledger yet.")
+		debug("There are no long trades awaiting completion in the ledger.")
 	}
-	recLen := len(viableRecords)
-	if recLen > 0 {
-		// If there are viable assets up for sale, sell them.
-		debug("Found ", recLen, "records viable for sale in the ledger")
-		for n, rec := range viableRecords {
-			debugf("Trying to sell %d out of %d viable %v assets\n", n+1, recLen, rec.Asset)
-			sold := cl.Sell(&rec)
-			if sold {
-				debugf("%d out of %d viable assets sold.\n", n+1, recLen)
+
+	if len(pendingRecords) > 0 {
+		// Get current price
+		currentPrice, err := cl.CurrentPrice()
+		if cancelled() {
+			return ErrCancelled
+		}
+		if err != nil {
+			debugf("Error! (In `bot.CompleteLongTrades`) Could not retrieve current price. Reason: %v", err)
+			return err
+		}
+		for _, rec := range pendingRecords {
+			// Compare current asset price with the precalculated trigger price.
+			if currentPrice > rec.TriggerPrice {
+				// We can't repurchase yet. The repurchase price has to be lower or equal to the trigger price.
+				// The trigger price is calculated when the short-sold asset is first sold.
+				// For Example, if the asset was sold for #100,000 and the profit margin is 3%, the trigger price
+				// is calculated to be 100,000 - (100,000 * 0.03) i.e. #97,000. The asset should be repurchased at
+				// #97,000 or lower in order to realize a profit of #3000, i.e 3% of #100,000.0
+				continue
+			}
+			// The current price is below or equal to the trigger price.
+			viablePendingRecords = append(viablePendingRecords, rec)
+		}
+		recLen := len(viablePendingRecords)
+		if recLen > 0 {
+			// If there are viable assets up for repurchase them.
+			debug("Found ", recLen, "short sold records viable for repurchase in the ledger")
+			if cancelled() {
+				return ErrCancelled
+			}
+			for n, rec := range viablePendingRecords {
+				debugf("Trying to repurchase %d out of %d short sold %v assets\n", n+1, recLen, rec.Asset)
+				orderID, err := cl.ask(currentPrice, rec.Volume)
+				if err != nil {
+					debugf("Error! (In `bot.CompleteLongTrades`) There was an error while selling %f %s", rec.Volume, rec.Asset)
+				} else {
+					debugf("%d out of %d viable assets with ID: %s bought.\n", n+1, recLen, orderID)
+					debugf("Approx. profit realized is: %f", currentPrice-rec.Price)
+					cl.lockedVolume -= rec.Volume // Subtract this asset from the locked volume for this client
+					// record the sale of the asset
+					err = NewPurchase(cl.asset, orderID, time.Now().Format(timeFormat),
+						rec.Price, rec.Volume, currentPrice, rec.Volume)
+					err = ledger.DeleteRecord(rec.ID)
+					if err != nil {
+						debugf("ERROR! Could not delete record with ID %s from the ledger.", rec.ID)
+					}
+
+				}
 			}
 		}
+
 	} else {
 		debugf(`Leprechaun will not sell any assets, as there are no viable %s records in the ledger at this time.`, cl.name)
 	}
-	return
+	return nil
 }
+
+// CompleteLongTrades completes the second part of a long trade. The purchased asset is sold
+// at the recorded trigger price
+func (bot *Bot) CompleteLongTrades(cl *Client) error {
+	ledger := bot.Ledger()
+	defer ledger.Save()
+
+	var (
+		viablePendingRecords = []Record{}
+	)
+	// Get pending records.
+	pendingRecords, err := ledger.GetRecordsByType(cl.asset, LongOrder)
+	if err != nil {
+		// TODO: Silently print error and return
+		debug(err)
+		debug("There are no long trades awaiting completion in the ledger.")
+	}
+	if cancelled() {
+		return ErrCancelled
+	}
+	if len(pendingRecords) > 0 {
+		// Get current price
+		currentPrice, err := cl.CurrentPrice()
+		if err != nil {
+			debugf("Error! (In `bot.CompleteLongTrades`) Could not retrieve current price. Reason: %v", err)
+			return err
+		}
+		if cancelled() {
+			return ErrCancelled
+		}
+		for _, rec := range pendingRecords {
+			// Compare current asset price with the precalculated trigger price.
+			if currentPrice < rec.TriggerPrice {
+				// We can't sell the asset yet. The sale price has to be higher or equal to the trigger price.
+				// The trigger price is calculated when the short-sold asset is first sold.
+				// For Example, if the asset was bougth for #100,000 and the profit margin is 3%, the trigger price
+				// is calculated to be 100,000 + (100,000 * 0.03) i.e. #103,000. The asset should be sold at
+				// #103,000 or lower in order to realize a profit of #3000, i.e 3% of #100,000.0
+				continue
+			}
+			// The current price is below or equal to the trigger price.
+			viablePendingRecords = append(viablePendingRecords, rec)
+		}
+		recLen := len(viablePendingRecords)
+		if recLen > 0 {
+			// If there are viable assets up for repurchase them.
+			debug("Found ", recLen, "short sold records viable for repurchase in the ledger")
+
+			for n, rec := range viablePendingRecords {
+				if cancelled() {
+					return ErrCancelled
+				}
+				debugf("Trying to repurchase %d out of %d short sold %v assets\n", n+1, recLen, rec.Asset)
+				orderID, err := cl.bid(currentPrice, rec.Volume)
+				if err != nil {
+					debugf("Error! (In `bot.CompleteLongTrades`) There was an error while selling %f %s", rec.Volume, rec.Asset)
+				} else {
+					debugf("%d out of %d viable assets with ID: %s bought.\n", n+1, recLen, orderID)
+					debugf("Approx. profit realized is: %f", currentPrice-rec.Price)
+					// cl.lockedBalance -= rec.Price // Subtract this asset from the locked balance for this client
+					// record the sale of the asset
+					err = NewSale(cl.asset, orderID, time.Now().Format(timeFormat),
+						rec.Price, rec.Volume, currentPrice, rec.Volume)
+					err = ledger.DeleteRecord(rec.ID)
+					if err != nil {
+						debugf("ERROR! Could not delete record with ID %s from the ledger.", rec.ID)
+					}
+
+				}
+			}
+		}
+
+	} else {
+		debugf(`Leprechaun will not sell any assets, as there are no viable %s records in the ledger at this time.`, cl.name)
+	}
+	return nil
+}
+
+// // TODO:: This function should be a goroutine
+// func (bot *Bot) sellViableAssets(cl *Client, price float64) {
+// 	// First check if there are any viable assets in the ledger for sale.
+// 	debugf(`Leprechaun is checking the ledger for viable %s records...`, cl.name)
+// 	ledger := bot.Lesdger()
+// 	defer ledger.Save()
+// 	asset := cl.asset
+// 	viableRecords, err := ledger.ViableRecords(asset, price)
+// 	if err != nil {
+// 		// TODO: Silently print error and return
+// 		debug(err)
+// 		debug("There are no records in the ledger yet.")
+// 	}
+// 	recLen := len(viableRecords)
+// 	if recLen > 0 {
+// 		// If there are viable assets up for sale, sell them.
+// 		debug("Found ", recLen, "records viable for sale in the ledger")
+// 		for n, rec := range viableRecords {
+// 			debugf("Trying to sell %d out of %d viable %v assets\n", n+1, recLen, rec.Asset)
+// 			sold := cl.Sell(&rec)
+// 			if sold {
+// 				debugf("%d out of %d viable assets sold.\n", n+1, recLen)
+// 			}
+// 		}
+// 	} else {
+// 		debugf(`Leprechaun will not sell any assets, as there are no viable %s records in the ledger at this time.`, cl.name)
+// 	}
+// 	return
+// }
 
 func (bot *Bot) addRecordToLedger(rec Record) (err error) {
 	ledger := bot.Ledger()
@@ -437,7 +605,10 @@ func (bot *Bot) Emit(cl *Client) (signal SIGNAL, err error) {
 	}
 
 	// Do analysis
-	fmt.Println(prices)
+	log.Println(prices)
+	if cancelled() {
+		return ErrCancelled
+	}
 	err = bot.analysisPlugin.Analyze(prices)
 	if err != nil {
 		debugf("Analysis incomplete, due to error: (%v)", err)

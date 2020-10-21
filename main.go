@@ -5,7 +5,7 @@ import (
 	"runtime"
 
 	// "git.wow.st/gmp/jni"
-	leprechaun "github.com/michaellormann/leprechaun/bot"
+	leprechaun "github.com/michaellormann/leprechaun/core"
 
 	"log"
 	"os"

@@ -29,6 +29,16 @@ var (
 	ctx = context.Background()
 )
 
+// OrderType indicates whether an order is long or short
+type OrderType uint
+
+const (
+	// LongOrder is an order type in which an asset is bought at a certain price so it can be sold at a higher price.
+	LongOrder OrderType = iota
+	// ShortOrder is an order type in which an asset is sold in order to purchased at an even lower price.
+	ShortOrder
+)
+
 // Custom errors
 var (
 	// ErrInsufficientBalance tells the user his fiat balance is low or below specfied purchase unit.
@@ -43,6 +53,7 @@ var (
 
 // Client handles all operations for a specified currency pair.
 // It extends `luno.Client`
+// TODO (Michael): Save locked volume/balance to file and load the stored values on every init.
 type Client struct {
 	Pair string
 	// The client inherits all methods of `*luno.Client`
@@ -52,25 +63,58 @@ type Client struct {
 	fiatAccountID string
 	assetBalance  float64
 	fiatBalance   float64
+	lockedBalance float64 // Fiat balance locked to complete short orders
+	lockedVolume  float64 // Volume of asset locked to complete long orders
 	asset         string
 	currency      string
 	minOrderVol   float64 // Minimum volume that can be traded on the exchange
 }
 
 // Record holds details of an asset sale or purchase
+// `Asset` is the crypto asset in question. Assets are represented by three-leter code, like {`"XBT"`, `"ETH"`, `"XRP"`}
+//
+// `Cost` is simply the volume of the asset purchased mulitplied by its unit price. For example, a sale of
+// 0.1 ETH at a unit price of #200,000 has a cost of #20,000
+//
+// `ID` is a string unique to each order laced on the exchange.
+//
+// `Price` is the market price at which the order was placed on the exchange. Leprechaun does not currently
+// support limit orders.
+//
+// `SaleID` is the order ID for a sell order placed on the exchange.
+//
+// `Sold` identifies an asset in the legder that has been sold. (Redundant?)
+//
+// `Status` is a string specifying the status of an order on the luno exchange.
+// See the Luno API docs for more info.
+//
+// `Timestamp` is a client-side string representation of the time at which an order is placed. This may be
+// sligthly different from the time recorded by the exchange.
+//
+// `Volume` is the amount of the asset to be purchased or sold.
+//
+// `OrderType` indicates the type of order this recor holds. Orders are executed in two parts. For long
+// orders, a purchase is made before a subsequent sale at a higher price, while for a short order, a sale
+// is made before a subsequent purchase at a lower price.
+//
+// `TriggerPrice` specifies the pre-calculated price at whochh the second part of the order is executed.
+// For a long order, this is the price at which to sell the asset and is always higher than the purchase price.
+// For a short order, this is the price at whoch to buy the asset and is always lower than the purchase price.
 type Record struct {
-	Asset     string
-	Cost      float64
-	ID        string
-	Price     float64
-	SaleID    string
-	Sold      bool
-	Status    string
-	Timestamp string
-	Volume    float64
+	Asset        string
+	Cost         float64
+	ID           string
+	Price        float64
+	SaleID       string
+	Sold         bool
+	Status       string
+	Timestamp    string
+	Volume       float64
+	Type         OrderType
+	TriggerPrice float64
+
 	// Update legder code first to reflect new struct fields.
 	// PPercent  float64 // Profit Percentage
-	// Trigger   float64 // TriggerPrice
 }
 
 // For string representation of a record. verbose fields are left out
@@ -85,7 +129,7 @@ type reprRecord struct {
 
 // NewRecord creates a new `Record` object
 func NewRecord(asset string, price float64, timestamp string,
-	volume float64, id string) (rec Record) {
+	volume float64, id string, orderType OrderType) (rec Record) {
 	rec.Asset = asset
 	rec.Cost = price * volume
 	rec.Price = price
@@ -95,6 +139,12 @@ func NewRecord(asset string, price float64, timestamp string,
 	rec.Status = ""
 	rec.Timestamp = timestamp
 	rec.Volume = volume
+	rec.Type = orderType
+	if rec.Type == LongOrder {
+		rec.TriggerPrice = rec.Price + (rec.Price * config.ProfitMargin)
+	} else if rec.Type == ShortOrder {
+		rec.TriggerPrice = rec.Price - (rec.Price * config.ProfitMargin)
+	}
 	return
 }
 
@@ -104,8 +154,8 @@ func (rec Record) String() string {
 	return fmt.Sprintf("%+v", s)
 }
 
-// SaleEntry records the profit made from the sale of an asset
-type SaleEntry struct {
+// ProfitEntry records the profit made from the sale/(re)purchase of an asset
+type ProfitEntry struct {
 	Asset          string
 	OrderID        string
 	Timestamp      string
@@ -117,7 +167,7 @@ type SaleEntry struct {
 	SaleCost       float64
 	Profit         float64
 }
-type reprSaleEntry struct {
+type reprProfitEntry struct {
 	Asset      string
 	ID         string
 	Timestamp  string
@@ -127,8 +177,8 @@ type reprSaleEntry struct {
 	Profit     float64
 }
 
-func (entry *SaleEntry) String() string {
-	e := reprSaleEntry{Asset: entry.Asset, ID: entry.OrderID, Timestamp: entry.Timestamp, SalePrice: entry.SalePrice,
+func (entry *ProfitEntry) String() string {
+	e := reprProfitEntry{Asset: entry.Asset, ID: entry.OrderID, Timestamp: entry.Timestamp, SalePrice: entry.SalePrice,
 		SaleVolume: entry.SaleVolume, SaleCost: entry.SaleCost, Profit: entry.Profit}
 	return fmt.Sprintf("%+v", e)
 }
@@ -180,7 +230,7 @@ func (cl *Client) PurchaseQuote() (rec Record, err error) {
 	exerciseQuote := luno.ExerciseQuoteRequest{Id: stringToInt(res.Id)}
 	exercisedQuote, err := cl.ExerciseQuote(ctx, &exerciseQuote)
 	rec = NewRecord(cl.asset, exercisedQuote.CounterAmount.Float64(), time.Now().String(),
-		exercisedQuote.BaseAmount.Float64(), exercisedQuote.Id)
+		exercisedQuote.BaseAmount.Float64(), exercisedQuote.Id, LongOrder)
 	return
 }
 
@@ -189,46 +239,31 @@ func (cl *Client) SellQuote() {
 	return
 }
 
-// Purchase buys a specified amount of a specified asset on the exchange
-func (cl *Client) Purchase(price float64, volume float64) (rec Record, err error) {
-	// TODO:: consider using current price instead of custom price
+// bid places an order to buys a specified amount of an asset on the exchange
+// It executes immediately.
+func (cl *Client) bid(price float64, volume float64) (orderID string, err error) {
 	sleep() // Error 429 safety
 	cost := price * volume
-	asset := cl.asset
-	debugf("Placing bid order for NGN %.2f worth of %s (approx. %.2f %s) on the exchange...\n", cost, cl.name, volume, asset)
+	debugf("Placing bid order for NGN %.2f worth of %s (approx. %.2f %s) on the exchange...\n", cost, cl.name, volume, cl.asset)
 	//Place bid order on the exchange
 	req := luno.PostMarketOrderRequest{Pair: cl.Pair, Type: luno.OrderTypeBuy,
 		BaseAccountId: stringToInt(cl.accountID), CounterAccountId: stringToInt(cl.fiatAccountID),
 		CounterVolume: decimal(cost)}
 	res, err := cl.PostMarketOrder(ctx, &req)
+	orderID = res.OrderId
 	if err != nil {
 		return
 	}
-	orderID := res.OrderId
-	debugf("Bid order for %.4f %s has been placed on the exchange.\n", volume, asset)
-	debug("Order ID:", orderID)
-	ts := time.Now().Format(timeFormat)
-	rec.Asset = asset
-	rec.Cost = cost
-	rec.Price = price
-	rec.Volume = volume
-	rec.Timestamp = ts
-	rec.ID = orderID
+	debugf("Bid order for %.4f %s has been placed on the exchange.\n", volume, cl.asset)
 	return
+
 }
 
-// Sell places a bid order on the excahnge to sell `volume` worth of Client.asset in exhange for fiat currency.
-func (cl *Client) Sell(rec *Record) (sold bool) {
+// ask places a bid order on the excahnge to sell `volume` worth of Client.asset in exhange for fiat currency.
+func (cl *Client) ask(price, volume float64) (orderID string, err error) {
 	// Todo: Change return types for this function
 	sleep() // Error 429 safety
-	price, err := cl.CurrentPrice()
-	if err != nil {
-		debug("Could not retrieve price info from the exchange.[Client.Sell Method]")
-		return false
-	}
-	volume := rec.Volume
-	cost := price * rec.Volume
-	asset := cl.asset
+	cost := price * volume
 	//Place ask order on the exchange
 	debugf("Placing ask order for ~NGN %.2f worth of %s on the exchange...\n", cost, cl.name)
 	debugf("Current price is %4f\n", price)
@@ -237,35 +272,58 @@ func (cl *Client) Sell(rec *Record) (sold bool) {
 		CounterAccountId: stringToInt(cl.fiatAccountID)}
 	res, err := cl.PostMarketOrder(ctx, &req)
 	if err != nil {
-		debug(err.Error())
-		sold = false
+		debugf("(in `Client.ask`) %v", err.Error())
 		return
 	}
-	ts := time.Now().Format(timeFormat)
-	sold = true
-	rec.Sold = sold
-	rec.SaleID = res.OrderId
-	debugf("Ask order for %.4f %s has been placed on the exchange.\n", volume, asset)
-	debug("Order ID:", res.OrderId)
-	err = NewSale(asset, res.OrderId, ts, rec.Price, rec.Volume, price, volume)
-	if err != nil {
-		debugf("Could not record new sale of %s", asset)
-	}
+	orderID = res.OrderId
+	debugf("Ask order for %.4f %s has been placed on the exchange.\n", volume, cl.asset)
 	return
 }
 
-// goLong buys an asset at a specific price with the intention that the asset will
+// GoLong buys an asset at a specific price with the intention that the asset will
 // later be sold at a higher price to realize a profit.
-func (cl *Client) goLong() Record {
+func (cl *Client) GoLong(volume float64) (rec Record, err error) {
 	// goLong
-	return NewRecord(cl.asset, 0.000, time.Now().String(), 0.000, "ABC")
+	price, err := cl.CurrentPrice()
+	if err != nil {
+		return Record{}, err
+	}
+	ts := time.Now().Format(timeFormat)
+	// Place market bid order.
+	purchaseOrderID, err := cl.bid(price, volume)
+	if err != nil {
+		debugf("An error occured while going long!")
+		return Record{}, err
+	}
+
+	debug("Order ID:", purchaseOrderID)
+	cl.lockedVolume += volume
+
+	return NewRecord(cl.asset, price, ts, volume, purchaseOrderID, LongOrder), nil
 }
 
-// goShort sells an asset at a certain price with the aim of repurchasing the same
+// GoShort sells an asset at a certain price with the aim of repurchasing the same
 // volume of asset sold at a lower price in the future to realize a profit.
-func (cl *Client) goShort() Record {
+// TODO XXX: Implement stoploss for short sold assets
+// TODO: Make short-selling an  option
+func (cl *Client) GoShort(volume float64) (rec Record, err error) {
 	// goShort
-	return NewRecord(cl.asset, 0.000, time.Now().String(), 0.000, "ABC")
+	price, err := cl.CurrentPrice()
+	if err != nil {
+		debug("Could not retrieve price info from the exchange. (in `Client.GoShort`)")
+		return Record{}, err
+	}
+	ts := time.Now().Format(timeFormat)
+	saleOrderID, err := cl.ask(price, volume)
+	if err != nil {
+		debug("An error occured while executing a short order!")
+		return Record{}, err
+	}
+	cost := price * volume
+	cl.lockedBalance += cost
+	debug("Order ID:", saleOrderID)
+
+	return NewRecord(cl.asset, price, ts, volume, saleOrderID, ShortOrder), nil
 }
 
 // Returns a string representation of a Client struct

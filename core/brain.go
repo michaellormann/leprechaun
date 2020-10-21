@@ -40,6 +40,10 @@ const (
 	SignalBuy SIGNAL = "BUY"
 	// SignalSell ...
 	SignalSell SIGNAL = "SELL"
+	// SignalLong tells the bot to initiate a long trade
+	SignalLong SIGNAL = "GO_LONG"
+	// SignalShort tells the bot to short sell an asset.
+	SignalShort SIGNAL = "SHORT_SELL"
 )
 
 // TradeMode specifies the manner an upward or downward price trend is interpreted by Leprechaun.
@@ -182,23 +186,36 @@ func (plugin *Hermes) Emit() (signal SIGNAL) {
 
 			// Go against the mean reversion principle
 			case Contrarian:
-				signal = SignalBuy
+				// signal = SignalBuy
+				// Go long. Contrarian mode dictates we expect the price to stay above the moving average
+				// In this case it is expected to rise.
+				signal = SignalLong
 
 			// Follow the Mean reversion principle
 			case TrendFollowing:
-				signal = SignalSell
+				// signal = SignalSell
+				// Short sell the asset, since according to the mean reversion principle we expect
+				// the price to normalize with the moving average, in this case, the price will go down.
+				signal = SignalShort
 			}
-			// The current price is below the moving average
 		} else if plugin.pos.below {
+			// The current price is below the moving average
+
 			switch plugin.tradeMode {
 
 			// Go against the mean reversion principle
 			case Contrarian:
-				signal = SignalSell
+				// signal = SignalSell
+				// Expect the price to keep dropping, even though it is alreay below the moving average.
+				// i.e. Sell High, Buy Low
+				signal = SignalShort
 
 			// Follow the Mean reversion principle
 			case TrendFollowing:
-				signal = SignalBuy
+				// signal = SignalBuy
+				// Here the price is expected to rise back towards the moving average.
+				// So a long trade is initiated. i.e. Buy Low, Sell High.
+				signal = SignalLong
 			}
 
 		} else {
@@ -206,27 +223,33 @@ func (plugin *Hermes) Emit() (signal SIGNAL) {
 		}
 	} else if plugin.score > 0 { // Price trend is upward
 		fmt.Println("Price trend is upward!")
-		if plugin.pos.above {
+		if plugin.pos.above { // Current price is above the moving average.
 			switch plugin.tradeMode {
 
-			// Go against the mean reversion principle
-			case Contrarian:
-				signal = SignalSell
-
 			// Follow the mean reversion principle
+			case Contrarian:
+				// signal = SignalSell
+				// Go short. Contrarian mode dictates we expect the price to return downwards below the moving average
+				// In this case it is expected to rise.
+				signal = SignalShort
+
 			case TrendFollowing:
-				signal = SignalBuy
+				// signal = SignalBuy
+				// We expect the price trend to continue upwards. We dont follow the mean reversion in this case.
+				signal = SignalLong
 			}
 		} else if plugin.pos.below {
 			switch plugin.tradeMode {
 
-			// Go against the mean reversion principle
-			case Contrarian:
-				signal = SignalBuy
-
 			// Follow the mean reversion principle
+			case Contrarian:
+				// signal = SignalBuy
+				signal = SignalLong
+
+			// Go against the mean reversion principle
 			case TrendFollowing:
-				signal = SignalSell
+				// signal = SignalSell
+				signal = SignalShort
 			}
 		} else {
 			signal = SignalWait

@@ -41,6 +41,20 @@ var (
 var keyIDValue string = "LUNO_API_KEY_ID"
 var keySecretValue string = "LUNO_API_KEY_SECRET"
 
+type TradeSettings struct {
+	TradingMode  TradeMode
+	ProfitMargin float64
+	Shortsell    bool
+	ShortTrade   struct {
+		StopLoss           bool
+		StopLossPercentage float64
+	}
+	LongTrade struct {
+		StopLoss           bool
+		StopLossPercentage float64
+	}
+}
+
 // Configuration object holds settings for Leprechaun.
 type Configuration struct {
 	Name                 string
@@ -66,7 +80,8 @@ type Configuration struct {
 	LogDir               string
 	keyStore             string
 	configFile           string
-	TradingMode          TradeMode
+	// TradingMode          TradeMode
+	Trade TradeSettings
 }
 
 // ErrNoSavedSettings is returned by the load settigs function when it can't find any saved settings on file.
@@ -96,8 +111,21 @@ func (c *Configuration) DefaultSettings(appDir string) error {
 		RandomSnooze:  true,
 		SnoozePeriod:  5,
 		Verbose:       true,
-		TradingMode:   TrendFollowing,
+		Trade: TradeSettings{
+			TradingMode:  TrendFollowing,
+			ProfitMargin: 10 / 100.0,
+			Shortsell:    false,
+			ShortTrade: {
+				StopLoss:           false,
+				StopLossPercentage: 1 / 100.0,
+			},
+			LongTrade: {
+				StopLoss:           false,
+				StopLossPercentage: 1 / 100.0,
+			},
+		},
 	}
+
 	if runtime.GOOS == "android" {
 		conf.Android = true
 	} else {
@@ -134,7 +162,7 @@ func (c *Configuration) TestConfig(appDir string) error {
 	c.RandomSnooze = true
 	c.SnoozePeriod = 5
 	c.Verbose = true
-	c.TradingMode = TrendFollowing
+	c.Trade.TradingMode = TrendFollowing
 	if runtime.GOOS == "android" {
 		c.Android = true
 	} else {
@@ -205,7 +233,7 @@ func (c *Configuration) Update(copy *Configuration, isDefault bool) (err error) 
 	c.SnoozeTimes, c.CurrencyName = DefaultSnoozeTimes, DefaultCurrencyName
 	c.CurrencyCode, c.Verbose = DefaultCurrencyCode, copy.Verbose
 	c.keyStore, c.ExitOnInitFailed = copy.keyStore, copy.ExitOnInitFailed
-	c.TradingMode = copy.TradingMode
+	c.Trade.TradingMode = copy.Trade.TradingMode
 	if copy.AppDir != "" && !isDefault {
 		c.SetAppDir(filepath.Dir(copy.AppDir))
 	}
