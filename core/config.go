@@ -119,10 +119,14 @@ func (c *Configuration) DefaultSettings(appDir string) error {
 				StopLoss:           false,
 				StopLossPercentage: 1 / 100.0,
 			},
-			LongTrade: {
-				StopLoss:           false,
-				StopLossPercentage: 1 / 100.0,
-			},
+			LongTrade: struct {
+				StopLoss           bool
+				StopLossPercentage float64
+			}{false, 0.01},
+			// {
+			// 	StopLoss:           false,
+			// 	StopLossPercentage: 1 / 100.0,
+			// },
 		},
 	}
 
