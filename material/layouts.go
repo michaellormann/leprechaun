@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	leper "github.com/michaellormann/leprechaun/bot"
+	leper "github.com/michaellormann/leprechaun/core"
 
 	"gioui.org/layout"
 	"gioui.org/text"
@@ -220,7 +220,7 @@ func (win *Window) configurePageSetup() {
 	randomSnoozeSwitch = &widget.Bool{Value: win.cfg.RandomSnooze}
 	displayLogSwitch = &widget.Bool{Value: win.cfg.Verbose}
 	tradeModeGroup = new(widget.Enum)
-	switch win.cfg.TradingMode {
+	switch win.cfg.Trade.TradingMode {
 	case leper.TrendFollowing:
 		tradeModeGroup.Value = "trend_following"
 	case leper.Contrarian:

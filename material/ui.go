@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	leper "github.com/michaellormann/leprechaun/bot"
+	leper "github.com/michaellormann/leprechaun/core"
 
 	"gioui.org/io/key"
 	"gioui.org/io/profile"
@@ -644,9 +644,9 @@ func (win *Window) saveUserSettings(gtx layout.Context) D {
 		}
 		switch tradeModeGroup.Value {
 		case "trend_following":
-			cfg.TradingMode = leper.TrendFollowing
+			cfg.Trade.TradingMode = leper.TrendFollowing
 		case "contrarian":
-			cfg.TradingMode = leper.Contrarian
+			cfg.Trade.TradingMode = leper.Contrarian
 		}
 	}
 
