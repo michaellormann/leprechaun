@@ -25,8 +25,7 @@ import (
 	"gioui.org/widget/material"
 
 	"git.sr.ht/~whereswaldon/materials"
-	"git.sr.ht/~whereswaldon/niotify"
-	"github.com/gen2brain/beeep"
+	// "git.sr.ht/~whereswaldon/niotify"
 )
 
 var (
@@ -36,11 +35,11 @@ var (
 	verPatch = 0
 )
 
-var (
-	// FGServiceClass is the foreground service helper class implemented in Java.
-	FGServiceClass = "com/github/michaellormann/leprechaun/ForegroundService"
-	// ANDROID ...
-)
+// var (
+// FGServiceClass is the foreground service helper class implemented in Java.
+// FGServiceClass = "com/github/michaellormann/leprechaun/ForegroundService"
+// ANDROID ...
+// )
 
 // Goroutine channels
 var (
@@ -73,9 +72,9 @@ var (
 	viewLedgerClicked      = false
 )
 
-var (
-	notifications = map[uint]*niotify.Notification{}
-)
+// var (
+// 	notifications = map[uint]*niotify.Notification{}
+// )
 
 const (
 	// StartupNotification represent a notification sent on app startup
@@ -350,12 +349,13 @@ func (win *Window) Loop() error {
 					botBtnClicked++
 					if botBtnClicked < 2 {
 						// Only consume one click at any one time.
-						if win.platform != "android" {
-							err := beeep.Beep(beeep.DefaultFreq, beeep.DefaultDuration)
-							if err != nil {
-								fmt.Println("Beep Error: ", err)
-							}
-						}
+
+						// if win.platform != "android" {
+						// 	err := beeep.Beep(beeep.DefaultFreq, beeep.DefaultDuration)
+						// 	if err != nil {
+						// 		fmt.Println("Beep Error: ", err)
+						// 	}
+						// }
 						win.handleStartStop(true)
 					}
 				}
@@ -403,7 +403,7 @@ func (win *Window) Loop() error {
 				if first {
 					first = false
 					// Android and linux (dbus) notification
-					notify(StartupNotification, fmt.Sprintf("Leprechaun v%s", getVersion()))
+					// notify(StartupNotification, fmt.Sprintf("Leprechaun v%s", getVersion()))
 					// Windows, macOS and unix (also dbus) notification
 				}
 			}
@@ -447,6 +447,7 @@ func (win *Window) InitBackends(logBackends map[string]*log.Logger) {
 func (win *Window) runBot() {
 	bot := leper.NewBot()
 	channels = bot.Channels()
+	// channels = &leper.Channels{}
 	channels.Log(logTextChannel)
 	channels.Error(fatalBotErrorChannel)
 	channels.Cancel(cancelChannel)
@@ -456,37 +457,33 @@ func (win *Window) runBot() {
 	bot.InitChannels(channels)
 	err := bot.Run(win.cfg)
 	if err != nil {
-		// TODO: Change to logger object from the main function.
-		// This logger should be diffrent from Lperechaun's log.
 		leper.Logger.Print("The trading loop has exited with error: ", err.Error())
 	}
 }
 
 // notify sends notifications on android and X11 platforms.
-func notify(kind uint, message string) {
-	go func() {
-		if not, ok := notifications[kind]; ok {
-			not.Cancel()
-		}
-		mgr, err := niotify.NewManager()
-		if err != nil {
-			log.Printf("manager creation failed: %v", err)
-		}
-		notif, err := mgr.CreateNotification("Leprechaun", message)
-		if err != nil {
-			log.Printf("notification send failed: %v", err)
-			return
-		}
-		notifications[kind] = notif
-		if kind != PersistentNotification {
-			time.Sleep(time.Second * 10)
-			if err := notif.Cancel(); err != nil {
-				log.Printf("failed cancelling: %v", err)
-			}
-		}
-	}()
+// func notify(kind uint, message string) {
+// 	if not, ok := notifications[kind]; ok {
+// 		not.Cancel()
+// 	}
+// 	mgr, err := niotify.NewManager()
+// 	if err != nil {
+// 		log.Printf("manager creation failed: %v", err)
+// 	}
+// 	notif, err := mgr.CreateNotification("Leprechaun", message)
+// 	if err != nil {
+// 		log.Printf("notification send failed: %v", err)
+// 		return
+// 	}
+// 	notifications[kind] = notif
+// 	if kind != PersistentNotification {
+// 		time.Sleep(time.Second * 10)
+// 		if err := notif.Cancel(); err != nil {
+// 			log.Printf("failed cancelling: %v", err)
+// 		}
+// 	}
 
-}
+// }
 
 func (win *Window) handleStartStop(userEvent bool) {
 	if botBtnClicked > 1 {
@@ -500,11 +497,11 @@ func (win *Window) handleStartStop(userEvent bool) {
 		go win.runBot()
 
 		startStopbutton.Background = ColorRed
-		notify(BotNotification, "Leprechaun is running...")
-		err := beeep.Notify("Leprechaun", "Leprechaun is running...", "assets/information.png")
-		if err != nil {
-			log.Println(err)
-		}
+		// notify(BotNotification, "Leprechaun is running...")
+		// err := beeep.Notify("Leprechaun", "Leprechaun is running...", "assets/information.png")
+		// if err != nil {
+		// 	log.Println(err)
+		// }
 		win.botState = Running
 		botBtnClicked = 0 // reset btn clicks
 		win.env.redraw()
@@ -529,7 +526,7 @@ func (win *Window) handleStartStop(userEvent bool) {
 		}
 		startStopbutton.Background = origStartBtnColor
 		time.AfterFunc(time.Second*time.Duration(2), func() {
-			notify(BotNotification, "Leprechaun has stopped.")
+			// notify(BotNotification, "Leprechaun has stopped.")
 		})
 		botIsStopping = false
 		botBtnClicked = 0

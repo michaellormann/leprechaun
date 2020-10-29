@@ -144,10 +144,10 @@ func (l *Ledger) GetRecordsByType(asset string, orderType OrderType) (records []
 		return
 	}
 	stmt, err := l.db.Prepare(typeSearchOp)
-	defer stmt.Close()
 	if err != nil {
-		return
+		return records, nil
 	}
+	defer stmt.Close()
 	rows, err := stmt.Query(asset, orderType)
 	if err != nil {
 		return

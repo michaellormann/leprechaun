@@ -15,7 +15,7 @@ import (
 type Channels struct {
 	// Log sends messages of Leprechaun's activities from the bot to the UI.
 	LogChan chan string
-	// Cancel delivers a signal for Leprechaun to stop running from the user to the bot through the UI.
+	// Cancel delivers a signal from the user (through the UI) to stop the traing loop.
 	CancelChan chan struct{}
 	// Stopped sends a signal from the bot to the UI after it has stopped.
 	// To facilitate graceful exiting.
@@ -127,7 +127,6 @@ func snooze(mins int32) error {
 			// Snooze period has elapsed.
 			return nil
 		default:
-			// do nothing
 			// time.Sleep(2)
 		}
 	}

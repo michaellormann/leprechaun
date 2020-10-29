@@ -22,8 +22,16 @@ const (
 )
 
 var (
-	assetNames = map[string]string{"XBT": "Bitcoin", "XRP": "Ripple Coin",
-		"BCH": "Bitcoin Cash", "ETH": "Ethereum", "LTC": "Litecoin"}
+	RippleCoin  = "Ripple Coin"
+	Bitcoin     = "Bitcoin"
+	Ethereum    = "Ethereum"
+	Litecoin    = "Litecoin"
+	BitcoinCash = "Bitcoin Cash"
+)
+
+var (
+	assetNames = map[string]string{"XBT": Bitcoin, "XRP": RippleCoin,
+		"BCH": BitcoinCash, "ETH": Ethereum, "LTC": Litecoin}
 	stringToIntDict = map[rune]int64{'0': 0, '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6,
 		'7': 7, '8': 8, '9': 9}
 	ctx = context.Background()
@@ -207,11 +215,8 @@ func (cl *Client) PurchaseQuote() (rec Record, err error) {
 	}
 	purchaseUnit := config.AdjustedPurchaseUnit - (0.0099 * config.AdjustedPurchaseUnit)
 	volume := purchaseUnit / price
-	trimmedVolume := strconv.FormatFloat(volume, 'f', 5, 64)
-	volume, err = strconv.ParseFloat(trimmedVolume, 64)
-	if err != nil {
-		fmt.Println("CONV ERROR: ", err)
-	}
+	trimmedVolume := strconv.FormatFloat(volume, 'f', -1, 64)
+	volume, _ = strconv.ParseFloat(trimmedVolume, 64)
 	fmt.Println("Price:", price, "Purchase unit", purchaseUnit, "Volume", volume)
 	quote := luno.CreateQuoteRequest{Type: "BUY", BaseAmount: decimal(volume), Pair: cl.Pair,
 		BaseAccountId: stringToInt(cl.accountID), CounterAccountId: stringToInt(cl.fiatAccountID)}
@@ -261,12 +266,12 @@ func (cl *Client) bid(price float64, volume float64) (orderID string, err error)
 
 // ask places a bid order on the excahnge to sell `volume` worth of Client.asset in exhange for fiat currency.
 func (cl *Client) ask(price, volume float64) (orderID string, err error) {
-	// Todo: Change return types for this function
 	sleep() // Error 429 safety
 	cost := price * volume
 	//Place ask order on the exchange
 	debugf("Placing ask order for ~NGN %.2f worth of %s on the exchange...\n", cost, cl.name)
 	debugf("Current price is %4f\n", price)
+	debugf("Order Volume: %v", volume)
 	req := luno.PostMarketOrderRequest{Pair: cl.Pair, Type: luno.OrderTypeSell,
 		BaseAccountId: stringToInt(cl.accountID), BaseVolume: decimal(volume),
 		CounterAccountId: stringToInt(cl.fiatAccountID)}
@@ -588,6 +593,6 @@ func stringToInt(s string) (num int64) {
 
 // Decimal converts a float64 value to a Decimal representation of scale 10
 func decimal(val float64) (dec luno_decimal.Decimal) {
-	dec = luno_decimal.NewFromFloat64(val, 10)
+	dec = luno_decimal.NewFromFloat64(val, 4)
 	return
 }

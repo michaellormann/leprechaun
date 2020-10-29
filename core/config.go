@@ -115,7 +115,10 @@ func (c *Configuration) DefaultSettings(appDir string) error {
 			TradingMode:  TrendFollowing,
 			ProfitMargin: 10 / 100.0,
 			Shortsell:    false,
-			ShortTrade: {
+			ShortTrade: struct {
+				StopLoss           bool
+				StopLossPercentage float64
+			}{
 				StopLoss:           false,
 				StopLossPercentage: 1 / 100.0,
 			},

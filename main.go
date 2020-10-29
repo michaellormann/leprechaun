@@ -64,8 +64,10 @@ func newApp(test bool) *App {
 	}
 }
 
+// TODO:: Update android support library (javac, etc) to use notify and other android extensions
+
 func main() {
-	myApp := newApp(false)
+	myApp := newApp(true)
 
 	d, err := app.DataDir()
 	if err != nil {

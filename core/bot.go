@@ -11,12 +11,23 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"math/rand"
+	"math"
 	"strconv"
 	"strings"
 	"time"
 
 	luno "github.com/luno/luno-go"
+)
+
+var (
+	// Leprechaun ...
+	Leprechaun = "Leprechaun"
+)
+
+// Supported exchanges
+var (
+	ExchangeLuno string = "LUNO"
+	// ExchangeQuidax string = "QUIDAX"
 )
 
 var (
@@ -49,7 +60,7 @@ var (
 // Errors
 var (
 	botStoppedMessage = "\nLeprechaun has stopped."
-	// ErrCancelled is sent by the bot goroutine when it recieces a signal from
+	// ErrCancelled is sent by the bot goroutine when it receives a signal from
 	// the cancel channel
 	ErrCancelled = errors.New("the trading session has been cancelled")
 	// ErrInvalidAPICredentials is returned for an invalid API key ID or key Secret
@@ -86,7 +97,7 @@ func (bot *Bot) InitChannels(chans *Channels) {
 
 			// Stop the bot if critical operation not happening
 			// Check that we are not in a ledger/purchase/sale function first
-			debugf("%s trading session has been stopped by the user.", bot.exchange)
+			debugf("Current trading session (%s) has been stopped by the user.", bot.exchange)
 			return true
 		default:
 			// do nothing
@@ -132,6 +143,7 @@ func (bot *Bot) Run(settings *Configuration) error {
 		}
 	}
 	initialRound = true
+	var roundNo int = 1
 	var signal SIGNAL
 	for {
 		// This is the main trading loop.
@@ -140,7 +152,7 @@ func (bot *Bot) Run(settings *Configuration) error {
 				return ErrCancelled
 			}
 			cl := bot.clients[clientNo]
-			debugf("<========[ %s ]========>", cl.name)
+			debugf("<========[ %s | Trading Round: %d ]========>", cl.name, roundNo)
 
 			feeInfo, err := cl.FeeInfo()
 			if err != nil {
@@ -157,6 +169,7 @@ func (bot *Bot) Run(settings *Configuration) error {
 				// Luno charges a taker fee for market orders.
 				// we compensate for that by buying more than
 				// the specified purchase Unit.
+				debug(takerFee)
 				debugf("30 day trading volume: %s %s. | Luno taker fee for %s is %.2f%s",
 					feeInfo.ThirtyDayVolume, cl.asset, cl.name, takerFee*100, "%")
 
@@ -253,9 +266,16 @@ func (bot *Bot) Run(settings *Configuration) error {
 				// } else if signal == SignalSell {
 			} else if signal == SignalShort {
 				// We can sell
-				// bot.sellViableAssets(&cl, currentPrice)
-				purchaseVolume := config.AdjustedPurchaseUnit / currentPrice
-				cl.GoShort(purchaseVolume)
+				var vol float64
+				if cl.name == RippleCoin && bot.exchange == ExchangeLuno {
+					// Luno only trades single units of ripple coin i.e no fractional or decimal units
+					vol = math.Floor(config.AdjustedPurchaseUnit / currentPrice)
+				} else {
+					vol = config.AdjustedPurchaseUnit / currentPrice
+				}
+				volFormatted := strconv.FormatFloat(vol, 'f', -1, 64)
+				purchaseVolume, _ := strconv.ParseFloat(volFormatted, 64)
+				cl.GoShort(math.Abs(purchaseVolume))
 				if cancelled() {
 					return ErrCancelled
 				}
@@ -289,15 +309,16 @@ func (bot *Bot) Run(settings *Configuration) error {
 		if err != nil {
 			return err
 		}
+		roundNo++
 	}
 }
 
 // NewBot create a new trading bot object
 func NewBot() *Bot {
 	bot = &Bot{
-		name:     "Leprechaun",
-		exchange: "Luno",
-		id:       rand.Intn(1000),
+		name:     Leprechaun,
+		exchange: ExchangeLuno,
+		// id:       rand.Intn(1000),
 		analysisPlugin: DefaultAnalysisPlugin(
 			11,
 			time.Duration(25)*time.Minute,
@@ -355,7 +376,7 @@ func (bot *Bot) initBot() error {
 	for _, c := range bot.clients {
 		clientnames = append(clientnames, fmt.Sprintf("%s:%s", c.name, c.accountID))
 	}
-	debugf("%d of %d client(s) initialized: <%v>", len(bot.clients), len(config.AssetsToTrade), clientnames)
+	debugf("%d client(s) initialized: <%v>", len(bot.clients), clientnames)
 	return nil
 }
 
@@ -408,7 +429,7 @@ func (bot *Bot) CompleteShortTrades(cl *Client) error {
 	if err != nil {
 		// TODO: Silently print error and return
 		debug(err)
-		debug("There are no long trades awaiting completion in the ledger.")
+		debug("There are no short trades awaiting completion in the ledger.")
 	}
 
 	if len(pendingRecords) > 0 {
@@ -463,7 +484,7 @@ func (bot *Bot) CompleteShortTrades(cl *Client) error {
 		}
 
 	} else {
-		debugf(`Leprechaun will not sell any assets, as there are no viable %s records in the ledger at this time.`, cl.name)
+		debug("There are no short trades awaiting completion in the ledger.")
 	}
 	return nil
 }
@@ -540,7 +561,7 @@ func (bot *Bot) CompleteLongTrades(cl *Client) error {
 		}
 
 	} else {
-		debugf(`Leprechaun will not sell any assets, as there are no viable %s records in the ledger at this time.`, cl.name)
+		debug("There are no long trades awaiting completion in the ledger.")
 	}
 	return nil
 }
@@ -595,19 +616,28 @@ func (bot *Bot) Emit(cl *Client) (signal SIGNAL, err error) {
 		if cancelled() {
 			return SignalWait, ErrCancelled
 		}
-		if err == nil && pricesErr == nil {
+		if len(prices) > 0 && pricesErr == nil {
 			break
 		}
 	}
-	if err != nil {
+	if pricesErr != nil || len(prices) == 0 {
 		debug("An error occured while retrieving price data from the exchange. Please check your network connection!", err.Error())
 		return SignalWait, err
 	}
 
 	// Do analysis
 	log.Println(prices)
+	reducedPrices := []float64{}
+	if cl.name == RippleCoin {
+		// Luno does not support trading ripple coin in fractional units
+		for _, price := range prices {
+			reducedPrices = append(reducedPrices, math.Floor(price))
+		}
+		prices = reducedPrices
+		log.Println(reducedPrices)
+	}
 	if cancelled() {
-		return ErrCancelled
+		return SignalWait, ErrCancelled
 	}
 	err = bot.analysisPlugin.Analyze(prices)
 	if err != nil {
