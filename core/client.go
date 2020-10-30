@@ -479,7 +479,6 @@ func (cl *Client) PreviousPrices(num int, interval time.Duration) (prices []floa
 	allTrades := map[luno.Time]luno.Trade{}
 	// Oldest first
 	for i := num; i > 0; i-- {
-		// -----------Currently using short interval for testing--------------
 		timestamps = append(timestamps, luno.Time(time.Now().Add(time.Duration(-i)*interval)))
 		// luno.Time(time.Now().Add(-24 * time.Hour))
 	}
