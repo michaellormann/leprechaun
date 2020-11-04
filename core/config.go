@@ -23,7 +23,7 @@ var (
 	apiKeyID                  = flag.String("api-key-id", "fxb2rxswvhkzs", "Your Luno API key ID (*required)")
 	apiKeySecret              = flag.String("api-key-secret", "tkvKZ0T2RIViZlJECGKDntaC_AXQmi2W3WwWiFKrg8A", "Your Luno API key secret (*required)")
 	assetsToTrade             = flag.String("assets", "xrp", `Specify assets you want Leprechaun to trade for you. Use the three-letter code of each asset seperated by a "+". e.g. To trade bitcoin and ripple coin, use "btc+xrp". Note that you must already have created a luno wallet for each asset you want to trade.`)
-	purchaseUnit              = flag.Float64("purchase-unit", 500, "Specify how much you want to spend for each of Leprechaun's purchase")
+	purchaseUnit              = flag.Float64("purchase-unit", 600, "Specify how much you want to spend for each of Leprechaun's purchase")
 	emailAddress              = flag.String("email-address", "michaellormann@gmail.com", "Specify the email address where you want to recieve log files and stats. Leprechaun sends these files daily.")
 	profitMargin              = flag.Float64("profit-margin", 3.0, "Minimum profit margin at which to sell assets. Refer to the help file for more information. Default is 1%")
 	verbose                   = flag.Bool("verbose", true, `Setting -verbose to "true" prints the bot's output to the command line (screen). Set it to "false" to prevent this behaviour. Note that some messages will still be written to the screen. The bot's output messages are always written to a log file anyway.`)
@@ -38,9 +38,12 @@ var (
 	// exitIfNoClientInitialized = false
 )
 
-var keyIDValue string = "LUNO_API_KEY_ID"
-var keySecretValue string = "LUNO_API_KEY_SECRET"
+var (
+	keyIDValue     string = "LUNO_API_KEY_ID"
+	keySecretValue string = "LUNO_API_KEY_SECRET"
+)
 
+// TradeSettings defines trading specific parameteres.
 type TradeSettings struct {
 	TradingMode  TradeMode
 	ProfitMargin float64
@@ -52,6 +55,10 @@ type TradeSettings struct {
 	LongTrade struct {
 		StopLoss           bool
 		StopLossPercentage float64
+	}
+	AnalysisPlugin struct {
+		Default bool
+		Name    string
 	}
 }
 
@@ -112,9 +119,17 @@ func (c *Configuration) DefaultSettings(appDir string) error {
 		SnoozePeriod:  5,
 		Verbose:       true,
 		Trade: TradeSettings{
-			TradingMode:  TrendFollowing,
+			TradingMode: TrendFollowing,
+
+			AnalysisPlugin: struct {
+				Default bool
+				Name    string
+			}{Default: true},
+
 			ProfitMargin: 10 / 100.0,
-			Shortsell:    false,
+
+			Shortsell: false,
+
 			ShortTrade: struct {
 				StopLoss           bool
 				StopLossPercentage float64
@@ -122,6 +137,7 @@ func (c *Configuration) DefaultSettings(appDir string) error {
 				StopLoss:           false,
 				StopLossPercentage: 1 / 100.0,
 			},
+
 			LongTrade: struct {
 				StopLoss           bool
 				StopLossPercentage float64
@@ -170,6 +186,10 @@ func (c *Configuration) TestConfig(appDir string) error {
 	c.SnoozePeriod = 5
 	c.Verbose = true
 	c.Trade.TradingMode = TrendFollowing
+	c.Trade.AnalysisPlugin = struct {
+		Default bool
+		Name    string
+	}{Default: true}
 	if runtime.GOOS == "android" {
 		c.Android = true
 	} else {
@@ -240,7 +260,7 @@ func (c *Configuration) Update(copy *Configuration, isDefault bool) (err error) 
 	c.SnoozeTimes, c.CurrencyName = DefaultSnoozeTimes, DefaultCurrencyName
 	c.CurrencyCode, c.Verbose = DefaultCurrencyCode, copy.Verbose
 	c.keyStore, c.ExitOnInitFailed = copy.keyStore, copy.ExitOnInitFailed
-	c.Trade.TradingMode = copy.Trade.TradingMode
+	c.Trade.TradingMode, c.Trade.AnalysisPlugin = copy.Trade.TradingMode, copy.Trade.AnalysisPlugin
 	if copy.AppDir != "" && !isDefault {
 		c.SetAppDir(filepath.Dir(copy.AppDir))
 	}

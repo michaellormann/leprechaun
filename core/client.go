@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 	"time"
 
 	luno "github.com/luno/luno-go"
@@ -22,10 +23,15 @@ const (
 )
 
 var (
-	RippleCoin  = "Ripple Coin"
-	Bitcoin     = "Bitcoin"
-	Ethereum    = "Ethereum"
-	Litecoin    = "Litecoin"
+	// RippleCoin ...
+	RippleCoin = "Ripple Coin"
+	// Bitcoin ...
+	Bitcoin = "Bitcoin"
+	// Ethereum ...
+	Ethereum = "Ethereum"
+	// Litecoin ...
+	Litecoin = "Litecoin"
+	// BitcoinCash ...
 	BitcoinCash = "Bitcoin Cash"
 )
 
@@ -38,13 +44,13 @@ var (
 )
 
 // OrderType indicates whether an order is long or short
-type OrderType uint
+type OrderType string
 
 const (
 	// LongOrder is an order type in which an asset is bought at a certain price so it can be sold at a higher price.
-	LongOrder OrderType = iota
+	LongOrder OrderType = "LONG_TRADE"
 	// ShortOrder is an order type in which an asset is sold in order to purchased at an even lower price.
-	ShortOrder
+	ShortOrder OrderType = "SHORT_TRADE"
 )
 
 // Custom errors
@@ -59,12 +65,12 @@ var (
 	// SaleError            = errors.New("Could not complete sale")
 )
 
-// Client handles all operations for a specified currency pair.
+// Client handles all operations for a specific currency pair.
 // It extends `luno.Client`
 // TODO (Michael): Save locked volume/balance to file and load the stored values on every init.
 type Client struct {
 	Pair string
-	// The client inherits all methods of `*luno.Client`
+	// Client inherits all methods of `*luno.Client`
 	*luno.Client
 	name          string
 	accountID     string
@@ -122,6 +128,8 @@ type Record struct {
 	TriggerPrice float64
 
 	// Update legder code first to reflect new struct fields.
+	LunoAssetFee float64
+	LunoFiatFee  float64
 	// PPercent  float64 // Profit Percentage
 }
 
@@ -321,7 +329,10 @@ func (cl *Client) GoShort(volume float64) (rec Record, err error) {
 	ts := time.Now().Format(timeFormat)
 	saleOrderID, err := cl.ask(price, volume)
 	if err != nil {
-		debug("An error occured while executing a short order!")
+		debugf("An error occured while executing a short order! Reason: %s", err.Error())
+		if strings.Contains(err.Error(), "ErrInsufficientBalance") {
+			debugf("Your %s balance is insufficient to execute a short trade. Fund your account or specify a lower purchase unit.", cl.name)
+		}
 		return Record{}, err
 	}
 	cost := price * volume
@@ -433,15 +444,21 @@ func (cl *Client) UpdateOrderDetails(rec Record) (updated Record, err error) {
 		// return record unchanged
 		return rec, err
 	}
-	oldRec := rec
-	rec.Price = orderDetails.LimitPrice.Float64()
-	rec.Cost = orderDetails.FeeCounter.Float64()
-	rec.Volume = orderDetails.FeeBase.Float64()
-	rec.Timestamp = orderDetails.CompletedTimestamp.String()
+	if orderDetails.State == luno.OrderStatePending {
+		debugf("%v with id %s is still PENDING!", rec.Type, rec.ID)
+		return rec, nil
+	}
+	updated = rec
+	updated.LunoFiatFee = orderDetails.FeeCounter.Float64()
+	updated.Cost = orderDetails.Counter.Float64()
+	updated.Volume = orderDetails.Base.Float64()
+	updated.Price = rec.Cost / rec.Volume
+	updated.LunoAssetFee = orderDetails.FeeBase.Float64()
+	updated.Timestamp = orderDetails.CompletedTimestamp.String()
 	fmt.Println("Record updated from: ")
-	fmt.Printf("%#v\n", oldRec)
-	fmt.Println("To:")
 	fmt.Printf("%#v\n", rec)
+	fmt.Println("To:")
+	fmt.Printf("%#v\n", updated)
 	return
 }
 

@@ -2,9 +2,8 @@ package core
 
 /* This file is part of Leprechaun.
 *  @author: Michael Lormann
-*  `brain.go` holds the [basic] technical analysis logic for Leprechaun.
-TODO: Implement Fuzzy Logic based rules.
-*/
+*  `analyzer.go` holds the [basic] technical analysis logic for Leprechaun.
+ */
 
 import (
 	"strings"

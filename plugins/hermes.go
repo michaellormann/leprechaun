@@ -1,76 +1,18 @@
-package core
-
-/* This file is part of Leprechaun.
-*  @author: Michael Lormann
-*  `brain.go` holds the [basic] technical analysis logic for Leprechaun.
-TODO: Implement Fuzzy Logic based rules.
-*/
+package plugins
 
 import (
 	"fmt"
 	"time"
 
 	"github.com/VividCortex/ewma"
+	"github.com/michaellormann/leprechaun/core"
 )
 
-// Analyzer defines the interface for an arbitrary analysis plugin
-// the `Analyze` function takes in a list of historical prices of any asset
-// the `PriceInterval` and `NumPrices` fields specify the duration between each
-// price point and the number of prices to retrieve, and the `Emit` function
-// returns the signal based on the analysis done.
-type Analyzer interface {
-	// PriceDimensions returns two parameters. The number of past prices to be retrieved, and
-	// the interval between each price point.
-	PriceDimensions() (int, time.Duration)
-	// Analyze is passed the historical price data received from the exchange and presumably
-	// does the technical analysis of the price data
-	Analyze(prices []float64) error
-	// Emit returns the final market signal based on the analysis
-	Emit() SIGNAL
-}
-
-// SIGNAL is emitted by the Emit function based on results from the technical analysis
-//  that tell the bot what to do
-type SIGNAL string
-
-const (
-	// SignalWait ...
-	SignalWait SIGNAL = "WAIT"
-	// SignalBuy ...
-	SignalBuy SIGNAL = "BUY"
-	// SignalSell ...
-	SignalSell SIGNAL = "SELL"
-	// SignalLong tells the bot to initiate a long trade
-	SignalLong SIGNAL = "GO_LONG"
-	// SignalShort tells the bot to short sell an asset.
-	SignalShort SIGNAL = "SHORT_SELL"
-)
-
-// TradeMode specifies the manner an upward or downward price trend is interpreted by Leprechaun.
-// TradeMode only deals with price trend and hence it should not be the only indicator used in price
-// technical analysis.
-type TradeMode uint
-
-const (
-	// Contrarian Mode assumes that a price trend in any direction will be followed
-	// by a reversal in the opposite direction. For example, if the price of an asset has been
-	// steadily falling for a period of time, Contrarian mode lets the bot buy the asset, with
-	// the hope of selling it at a higher price when the trend reverses. Conversely, an asset
-	// on an uptrend is sold to hedge against losses when the price trend reverses.
-	Contrarian TradeMode = iota
-	// TrendFollowing mode assumes that a price movement in any direction (up or down)
-	// will tend to continue in that manner. For example, if the price of an asset, say Bitcoin,
-	// has been rising steadily for the past few hours, this mode assumes that the price will
-	// continue to rise even further, this means the bot buys an asset on the rise with the hope
-	// of selling it at an even higher price.
-	TrendFollowing
-)
-
-// $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
-
-// PricePosition indicates whether the current price is above or below the moving average.
-type PricePosition struct {
-	above, below, stable bool
+func init() {
+	// Register the plugin
+	handler := core.InitPlugins()
+	// TODO: Expose the price dimensions parameters to the user, so they can be able to change it.
+	handler.Register("hermes", Hermes{NumPrices: 21, PriceInterval: 60 * time.Minute})
 }
 
 // Hermes is the default analysis plugin for leprechaun.
@@ -87,13 +29,20 @@ type Hermes struct {
 	movingAverage float64
 	mAvgWindow    int // Moving Average window
 	score         int
-	pos           PricePosition
+	pos           core.PricePosition
 	currentPrice  float64
-	tradeMode     TradeMode
+	tradeMode     core.TradeMode
 }
 
+var (
+	// TrendFollowing (see core.TrendFollowing)
+	TrendFollowing = core.TrendFollowing
+	// Contrarian (see core.Contrarian)
+	Contrarian = core.Contrarian
+)
+
 // DefaultAnalysisPlugin ...
-func DefaultAnalysisPlugin(NumPrices int, PriceInterval time.Duration, tradingMode TradeMode) Analyzer {
+func DefaultAnalysisPlugin(NumPrices int, PriceInterval time.Duration, tradingMode core.TradeMode) core.Analyzer {
 	return &Hermes{
 		NumPrices:     NumPrices,
 		PriceInterval: PriceInterval,
@@ -103,12 +52,12 @@ func DefaultAnalysisPlugin(NumPrices int, PriceInterval time.Duration, tradingMo
 
 // PriceDimensions returns two parameters. The number of past prices to be retrieved, and
 // the time interval between each price point.
-func (plugin *Hermes) PriceDimensions() (int, time.Duration) {
+func (plugin Hermes) PriceDimensions() (int, time.Duration) {
 	return plugin.NumPrices, plugin.PriceInterval
 }
 
 // Analyze examines market data and determines whether there is an uptrend of downtrend of price
-func (plugin *Hermes) Analyze(prices []float64) (err error) {
+func (plugin Hermes) Analyze(prices []float64) (err error) {
 	// Note: this function is a work in progress, it currently holds very simple techniques that
 	// will be updated later.
 	// todo:: provide option to just analyze price trend without any ema, i.e. don't take mean reversion into
@@ -124,7 +73,7 @@ func (plugin *Hermes) Analyze(prices []float64) (err error) {
 }
 
 // Score the prices to determine the price trend.
-func (plugin *Hermes) Score() {
+func (plugin Hermes) Score() {
 	// It is helpful to get an odd number of prices to ensure there is
 	// always a clear price trend. It is possible for half of an even nunmber
 	// of prices to exhibit a pattern that is equal to the other half, thus
@@ -145,7 +94,7 @@ func (plugin *Hermes) Score() {
 }
 
 // doEMA computes the exponential moving average for past prices collected from the exchange.
-func (plugin *Hermes) doEMA() {
+func (plugin Hermes) doEMA() {
 	ema := ewma.NewMovingAverage()
 	for _, price := range plugin.prices {
 		ema.Add(price)
@@ -155,24 +104,24 @@ func (plugin *Hermes) doEMA() {
 }
 
 // doPricePosition determines postion of current price relative to the moving average.
-func (plugin *Hermes) doPricePosition() {
-	plugin.pos = PricePosition{}
+func (plugin Hermes) doPricePosition() {
+	plugin.pos = core.PricePosition{}
 	plugin.doEMA()
 	if plugin.currentPrice < plugin.movingAverage {
 		// current price is below the ema
-		plugin.pos.below = true
+		plugin.pos.Below = true
 	} else if plugin.currentPrice > plugin.movingAverage {
 		// current price is above the ema
-		plugin.pos.above = true
+		plugin.pos.Above = true
 	} else {
 		// price is relatively stable
-		plugin.pos.stable = true
+		plugin.pos.Stable = true
 	}
 
 }
 
 // Emit emits a BUY, SELL or WAIT signal based on data from `analyze()`
-func (plugin *Hermes) Emit() (signal SIGNAL) {
+func (plugin Hermes) Emit() (signal core.SIGNAL) {
 	// TODO:: USE LUNO ORDER REQUEST V2 TO SEE WHAT ORDERS ARE IN THE ORDERBOOK.
 	// IF AN ORDER HAS A HIGH NUMBER OF ASSET ATTACHED TO IT AND IT IS RELATIVELY CLOSE TO YOUR PROFIT MARK
 	// YOU CAN ALIGN WITH IT.
@@ -181,24 +130,24 @@ func (plugin *Hermes) Emit() (signal SIGNAL) {
 	if plugin.score < 0 {
 		fmt.Println("Price trend is downward!")
 		// The current price of the asset is above the moving average.
-		if plugin.pos.above {
+		if plugin.pos.Above {
 			switch plugin.tradeMode {
 
 			// Go against the mean reversion principle
-			case Contrarian:
+			case core.Contrarian:
 				// signal = SignalBuy
 				// Go long. Contrarian mode dictates we expect the price to stay above the moving average
 				// In this case it is expected to rise.
-				signal = SignalLong
+				signal = core.SignalLong
 
 			// Follow the Mean reversion principle
 			case TrendFollowing:
 				// signal = SignalSell
 				// Short sell the asset, since according to the mean reversion principle we expect
 				// the price to normalize with the moving average, in this case, the price will go down.
-				signal = SignalShort
+				signal = core.SignalShort
 			}
-		} else if plugin.pos.below {
+		} else if plugin.pos.Below {
 			// The current price is below the moving average
 
 			switch plugin.tradeMode {
@@ -208,22 +157,22 @@ func (plugin *Hermes) Emit() (signal SIGNAL) {
 				// signal = SignalSell
 				// Expect the price to keep dropping, even though it is alreay below the moving average.
 				// i.e. Sell High, Buy Low
-				signal = SignalShort
+				signal = core.SignalShort
 
 			// Follow the Mean reversion principle
 			case TrendFollowing:
 				// signal = SignalBuy
 				// Here the price is expected to rise back towards the moving average.
 				// So a long trade is initiated. i.e. Buy Low, Sell High.
-				signal = SignalLong
+				signal = core.SignalLong
 			}
 
 		} else {
-			signal = SignalWait
+			signal = core.SignalWait
 		}
 	} else if plugin.score > 0 { // Price trend is upward
 		fmt.Println("Price trend is upward!")
-		if plugin.pos.above { // Current price is above the moving average.
+		if plugin.pos.Above { // Current price is above the moving average.
 			switch plugin.tradeMode {
 
 			// Follow the mean reversion principle
@@ -231,32 +180,32 @@ func (plugin *Hermes) Emit() (signal SIGNAL) {
 				// signal = SignalSell
 				// Go short. Contrarian mode dictates we expect the price to return downwards below the moving average
 				// In this case it is expected to rise.
-				signal = SignalShort
+				signal = core.SignalShort
 
 			case TrendFollowing:
 				// signal = SignalBuy
 				// We expect the price trend to continue upwards. We dont follow the mean reversion in this case.
-				signal = SignalLong
+				signal = core.SignalLong
 			}
-		} else if plugin.pos.below {
+		} else if plugin.pos.Below {
 			switch plugin.tradeMode {
 
 			// Follow the mean reversion principle
 			case Contrarian:
 				// signal = SignalBuy
-				signal = SignalLong
+				signal = core.SignalLong
 
 			// Go against the mean reversion principle
 			case TrendFollowing:
 				// signal = SignalSell
-				signal = SignalShort
+				signal = core.SignalShort
 			}
 		} else {
-			signal = SignalWait
+			signal = core.SignalWait
 		}
 	} else {
 		// Price direction is indeterminate
-		return SignalWait
+		return core.SignalWait
 	}
 
 	return signal

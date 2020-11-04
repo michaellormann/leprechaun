@@ -17,7 +17,12 @@ import (
 	"time"
 
 	luno "github.com/luno/luno-go"
+	_ "github.com/michaellormann/plugins"
 )
+
+func init() {
+	PluginHandler = InitPlugins()
+}
 
 var (
 	// Leprechaun ...
@@ -28,6 +33,12 @@ var (
 var (
 	ExchangeLuno string = "LUNO"
 	// ExchangeQuidax string = "QUIDAX"
+)
+
+var (
+	// DefaultAnalysisPlugin is the default technical analysis pipeline used by leprechaun.
+	// Hermes is defined in the plugins package. see `github.com/michaellormann/leprechaun/plugin.Hermes`
+	DefaultAnalysisPlugin = "Hermes"
 )
 
 var (
@@ -214,45 +225,27 @@ func (bot *Bot) Run(settings *Configuration) error {
 			if cancelled() {
 				return ErrCancelled
 			}
-			// if signal == SignalBuy {
-			if signal == SignalLong {
-				// We can buy.
+			var (
+				record         Record
+				purchaseVolume float64
+			)
+			if cl.name == RippleCoin && bot.exchange == ExchangeLuno {
+				// Luno only trades single units of ripple coin i.e no fractional or decimal units
+				purchaseVolume = math.Floor(config.AdjustedPurchaseUnit / currentPrice)
+			} else {
+				purchaseVolume = config.AdjustedPurchaseUnit / currentPrice
+			}
+			// volFormatted := strconv.FormatFloat(vol, 'f', -1, 64)
+			// purchaseVolume, _ := strconv.ParseFloat(volFormatted, 64)
+
+			switch signal {
+			case SignalLong:
+				// Go long
 				if canPurchase {
 					// Try to purchase `Client.asset`
-					purchaseVolume := config.AdjustedPurchaseUnit / currentPrice
-					record, err := cl.GoLong(purchaseVolume)
-					// Quote Purchase
-					// record, err := cl.PurchaseQuote()
-					// if err != nil {
-					// 	fmt.Println("Quote error", err)
-					// 	continue
-					// }
-
+					record, err = cl.GoLong(purchaseVolume)
 					if err != nil {
 						debugf("An error occured while trying to purchase %.2f %s >> %s  ", purchaseVolume, cl.asset, err.Error())
-					} else {
-						updatedRecord, err := cl.UpdateOrderDetails(record)
-						if err != nil {
-							// N.B: User doesn't have to see this as they don't know
-							// what's happening in this section.
-							// Should be removed after testing is complete.
-							debugf("Update failed: %v", err)
-							// revert to our calulated values
-							updatedRecord = record
-						}
-						// Save our purchase to the ledger.
-						err = bot.addRecordToLedger(updatedRecord)
-						if err != nil {
-							debug("Error: ", err)
-							e := errors.New("could not add record with id: " + record.ID + "to the ledger")
-							UIChans.ErrorChan <- e
-							return ErrCancelled
-						}
-						// Send an alert on the purchase channel
-						UIChans.PurchaseChan <- struct{}{}
-					}
-					if cancelled() {
-						return ErrCancelled
 					}
 				} else {
 					// We don't have purchasing power.
@@ -263,27 +256,39 @@ func (bot *Bot) Run(settings *Configuration) error {
 						cl.name, cl.currency, cl.fiatBalance)
 				}
 
-				// } else if signal == SignalSell {
-			} else if signal == SignalShort {
-				// We can sell
-				var vol float64
-				if cl.name == RippleCoin && bot.exchange == ExchangeLuno {
-					// Luno only trades single units of ripple coin i.e no fractional or decimal units
-					vol = math.Floor(config.AdjustedPurchaseUnit / currentPrice)
-				} else {
-					vol = config.AdjustedPurchaseUnit / currentPrice
-				}
-				volFormatted := strconv.FormatFloat(vol, 'f', -1, 64)
-				purchaseVolume, _ := strconv.ParseFloat(volFormatted, 64)
-				cl.GoShort(math.Abs(purchaseVolume))
+			case SignalShort:
+				// Go Short
+				record, err = cl.GoShort(math.Abs(purchaseVolume))
 				if cancelled() {
 					return ErrCancelled
 				}
-			} else {
+
+			case SignalWait:
 				// Market is indeterminate. Wait.
 				debug("The ", cl.asset, " market is indeterminate at this time. Will not buy or sell.")
 			}
-			// TODO: Run ConfirmOrder in a goroutine
+			if len(record.ID) > 0 {
+				// A trade has been executed. Here, we update the order details with server-side parameters.
+				updatedRecord, err := cl.UpdateOrderDetails(record)
+				if err != nil {
+					// N.B: User doesn't have to see this as they don't know
+					// what's happening in this section.
+					// Should be removed after testing is complete.
+					debugf("Update failed: %v", err)
+					// revert to our calulated values
+					updatedRecord = record
+				}
+				// Save our purchase to the ledger.
+				err = bot.addRecordToLedger(updatedRecord)
+				if err != nil {
+					debug("Error: ", err)
+					e := errors.New("could not add record with id: " + record.ID + " to the ledger")
+					UIChans.ErrorChan <- e
+					return ErrCancelled
+				}
+				// Send an alert on the purchase channel
+				UIChans.PurchaseChan <- struct{}{}
+			}
 			if cancelled() {
 				return ErrCancelled
 			}
@@ -295,10 +300,6 @@ func (bot *Bot) Run(settings *Configuration) error {
 			err = bot.CompleteShortTrades(&cl)
 			if err != nil {
 				debugf("An error occured while trying to cleanup pending short trades. Reason: %v", err)
-			}
-
-			if cancelled() {
-				return ErrCancelled
 			}
 		}
 		initialRound = false
@@ -319,11 +320,9 @@ func NewBot() *Bot {
 		name:     Leprechaun,
 		exchange: ExchangeLuno,
 		// id:       rand.Intn(1000),
-		analysisPlugin: DefaultAnalysisPlugin(
-			11,
-			time.Duration(25)*time.Minute,
-			config.Trade.TradingMode),
 	}
+	fmt.Printf("%+v\n", PluginHandler.plugins)
+	bot.SetAnalysisPlugin(PluginHandler.plugins[config.Trade.AnalysisPlugin.Name])
 	return bot
 }
 
@@ -406,9 +405,6 @@ func initClient(asset string) (client Client, err error) {
 	}
 	// retrieves balances and account ids
 	_, err = client.AccountID()
-	if err != nil {
-		return
-	}
 	return
 }
 
