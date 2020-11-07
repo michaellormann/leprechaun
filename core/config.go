@@ -61,13 +61,16 @@ type TradeSettings struct {
 	}
 }
 
+// ConfigField represents a single field that can be marked to indicate its value has been changed
 type ConfigField struct {
 	Value   interface{}
 	Updated bool
 }
 
+// Update changes the val of a config and marks it as updated
 func (field *ConfigField) Update(val ...interface{}) {
 	field.Value = val
+	field.Updated = true
 }
 
 // Configuration object holds settings for Leprechaun.
