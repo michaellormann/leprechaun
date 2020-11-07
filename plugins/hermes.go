@@ -2,17 +2,25 @@ package plugins
 
 import (
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/VividCortex/ewma"
-	"github.com/michaellormann/leprechaun/core"
+	core "github.com/michaellormann/leprechaun/core"
 )
 
 func init() {
+	// This is added here, because init functions execute in no given order,
+	// so in the event this function is executed before the bots own init,
+	// plugins are still initialized.
+	err := core.InitPlugins()
+	if err != nil {
+		log.Fatal("Could not initialize plugins")
+	}
 	// Register the plugin
-	handler := core.InitPlugins()
+	core.PluginHandler.Register("hermes", Hermes{NumPrices: 21, PriceInterval: 60 * time.Minute})
 	// TODO: Expose the price dimensions parameters to the user, so they can be able to change it.
-	handler.Register("hermes", Hermes{NumPrices: 21, PriceInterval: 60 * time.Minute})
+	log.Println("hermes plugin registered")
 }
 
 // Hermes is the default analysis plugin for leprechaun.

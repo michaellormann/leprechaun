@@ -76,8 +76,7 @@ var (
 
 // AnalysisPlugins holds registered analysis plugins. Each plugin should
 // 	1) Be defined in a seperate file the `plugins` package
-// 	2) Register itself with a unique string identifier in its `init()` method,
-//	 by calling `AnalysisPlugins.Register`
+// 	2) Register itself with a unique string identifier in its `init()` method, by calling `AnalysisPlugins.Register`
 //	3) Be well documented and expose a conscise description in its Description variable. The description
 // may include links to further information and explanation about the plugin.
 // e.g. The Default "hermes" analyzer exposes its description as `Hermes.Description string`
@@ -111,13 +110,13 @@ func (Plg *AnalysisPlugins) Register(name string, plugin Analyzer) {
 
 // InitPlugins returns the plugin handler to be used to access and register
 // the analysis plugins.
-func InitPlugins() (PluginHandler *AnalysisPlugins) {
+func InitPlugins() error {
 	if PluginHandler != nil {
-		return
+		return nil
 	}
 	PluginHandler = &AnalysisPlugins{
 		Default: nil,
 		plugins: map[string]Analyzer{},
 	}
-	return
+	return nil
 }

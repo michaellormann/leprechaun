@@ -17,11 +17,10 @@ import (
 	"time"
 
 	luno "github.com/luno/luno-go"
-	_ "github.com/michaellormann/plugins"
 )
 
 func init() {
-	PluginHandler = InitPlugins()
+	InitPlugins()
 }
 
 var (
@@ -321,7 +320,6 @@ func NewBot() *Bot {
 		exchange: ExchangeLuno,
 		// id:       rand.Intn(1000),
 	}
-	fmt.Printf("%+v\n", PluginHandler.plugins)
 	bot.SetAnalysisPlugin(PluginHandler.plugins[config.Trade.AnalysisPlugin.Name])
 	return bot
 }
