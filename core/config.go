@@ -57,9 +57,17 @@ type TradeSettings struct {
 		StopLossPercentage float64
 	}
 	AnalysisPlugin struct {
-		Default bool
-		Name    string
+		Name string
 	}
+}
+
+type ConfigField struct {
+	Value   interface{}
+	Updated bool
+}
+
+func (field *ConfigField) Update(val ...interface{}) {
+	field.Value = val
 }
 
 // Configuration object holds settings for Leprechaun.
@@ -113,7 +121,7 @@ func (c *Configuration) DefaultSettings(appDir string) error {
 		ExitOnInitFailed: false, APIKeyID: "",
 		APIKeySecret: "", PurchaseUnit: 10000,
 		AssetsToTrade: []string{"XBT", "ETH", "XRP", "LTC"},
-		ProfitMargin:  10 / 100.0,
+		ProfitMargin:  3 / 100.0,
 		SnoozeTimes:   DefaultSnoozeTimes,
 		RandomSnooze:  true,
 		SnoozePeriod:  5,
@@ -122,9 +130,8 @@ func (c *Configuration) DefaultSettings(appDir string) error {
 			TradingMode: TrendFollowing,
 
 			AnalysisPlugin: struct {
-				Default bool
-				Name    string
-			}{Default: true},
+				Name string
+			}{Name: "hermes"},
 
 			ProfitMargin: 10 / 100.0,
 
@@ -187,9 +194,8 @@ func (c *Configuration) TestConfig(appDir string) error {
 	c.Verbose = true
 	c.Trade.TradingMode = TrendFollowing
 	c.Trade.AnalysisPlugin = struct {
-		Default bool
-		Name    string
-	}{Default: true}
+		Name string
+	}{Name: "hermes"}
 	if runtime.GOOS == "android" {
 		c.Android = true
 	} else {
@@ -253,6 +259,11 @@ func (c *Configuration) Update(copy *Configuration, isDefault bool) (err error) 
 	if len(copy.AssetsToTrade) > 0 || isDefault {
 		c.AssetsToTrade = copy.AssetsToTrade
 	}
+	// for val, changed := range c{
+	// 	if changed{
+	// 		copy.Value = val
+	// 	}
+	// }
 
 	c.RandomSnooze, c.SnoozePeriod = copy.RandomSnooze, copy.SnoozePeriod
 	c.RandomSnooze = copy.RandomSnooze
