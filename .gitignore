@@ -19,8 +19,6 @@
 # Json files
 *.json
 
-# VSCode folder
-.vscode
 
 # batch files
 *.bat
