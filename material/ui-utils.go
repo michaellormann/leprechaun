@@ -400,11 +400,11 @@ const aboutInfoText = `Leprechaun is a cryptocurrency trading bot based on the L
 Leprechaun trades on your behalf by using the Luno API. You must create an API key in the "Settings" section of  your account and use that key to configure Leprechaun.
 For added security, it is recommended you give the key permission to trade ONLY. Visit "https://www.luno.com/en" to create an account.
 Leprechaun is designed to run constantly as often as possible to make the most of market opportunities. Leprechaun's strategy involves buying a specifed amount of crypto and recording the cost in a ledger.
-Leprechaun then constantly monitors the price of that asset and whenever it detects that the asset's price has moved above the price at which it was purchased by a certain margin (specified by the user. defualt(3%)),
+Leprechaun then constantly monitors the price of that asset and whenever it detects that the asset's price has moved above the price at which it was purchased by a specified margin (default is 3%),
 it sells the exact amount of crypto purchased. This way the bot is guaranteed to always make a profit, albeit at the expense of some flexibility. For example: If the current price of Bitcoin is 5,000,000 Naira, and you have a naira balance of 250,000 and you have specified a purchase unit of 250,000 Naira and a profit margin of 2%. Leprechaun will buy bitcoin worth approx 250,000 + taker fee (1%) = ~252500.
 Leprechaun then records the details of this purchase into a ledger. As long as Leprechaun is running, the app will constantly monitor the price of all assets recorded in the ledger in this case Bitcoin, and when it detects that the market price of Bitcoin has risen above the purchase price of the Bitcoin asset recorded in the ledger by the specified profit marginin this case 2%, it then selss the exact volume of Bitcoin purchased.
 i.e. ~0.05 BTC purchased for 250,000 @ 5,000,000 is sold at 257,500. Note: Each record in the ledger is distinct even if the assets are the the same.
 The user should please take note of the following:
 - Luno charges a ~1% taker fee (2% for Litecoin) for market orders. this cost is not factored in when you specify a purchase unit, so make sure you have enough to cover trading costs. The user-secified purchase unit is therefore an approximation of purchase volume that can vary slightly.
-- This methods employed here are obviously not get-rich-quick techniques, the method Leprechaun uses favors long-term, high volume traders. In general, the higher the amount you trade the higher the potential profit.
+- The methods employed by Leprechaun are intended for long-term, high volume traders. The higher the amount you trade the higher the potential profit.
 `
