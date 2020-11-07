@@ -604,10 +604,9 @@ func (win *Window) validateUserInputs() bool {
 }
 
 func (win *Window) saveUserSettings(gtx layout.Context) D {
-	// Note: Show `material.Loading` widget beside the apply button
+	// TODO: Show `material.Loading` widget beside the apply button
 	var err error
-	// Define new configuration struct
-	cfg := &leper.Configuration{}
+	cfg := win.cfg
 
 	// Save general settings
 	if win.settingsPage == GeneralSettingsView {
