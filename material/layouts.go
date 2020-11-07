@@ -346,7 +346,7 @@ func (win *Window) initTradeSettingsWidgets(gtx layout.Context) {
 				}),
 				layout.Rigid(func(gtx C) D {
 					return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-						layout.Flexed(1, material.Slider(win.theme, profitMarginFloat, 0, 20.0).Layout),
+						layout.Flexed(1, material.Slider(win.theme, profitMarginFloat, 2.0, 30.0).Layout),
 						layout.Rigid(func(gtx C) D {
 							return layout.UniformInset(unit.Dp(8)).Layout(gtx,
 								material.Body1(win.theme, fmt.Sprintf("%.2f%s", profitMarginFloat.Value, "%")).Layout,
