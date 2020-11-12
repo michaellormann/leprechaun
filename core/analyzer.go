@@ -106,6 +106,7 @@ func (Plg *AnalysisPlugins) Register(name string, plugin Analyzer) {
 	if len(Plg.plugins) == 1 {
 		Plg.Default = Plg.plugins[DefaultAnalysisPlugin]
 	}
+	// Logger.Printf("%s plugin registered.", name)
 }
 
 // InitPlugins returns the plugin handler to be used to access and register
@@ -119,4 +120,72 @@ func InitPlugins() error {
 		plugins: map[string]Analyzer{},
 	}
 	return nil
+}
+
+// OHLCTrend represents the general price movement of a given OHLC unit. It may be bullish or bearish.
+type OHLCTrend uint
+
+const (
+	// Bullish indicates a positive price move where the closing price is higher than the opening price
+	Bullish OHLCTrend = iota
+	// Bearish indicates a negative price move where the opening price is higher than the closing price
+	Bearish
+)
+
+// OHLC holds the Ope-High-Low-Close data for a range of prices
+type OHLC struct {
+	Open   float64       // Opening Price
+	High   float64       // Highest Price
+	Low    float64       // Lowest Price
+	Close  float64       // Closing Price
+	Range  float64       // Different between Opening and Closing prices
+	Period time.Duration // unit of time being represented
+	Trend  OHLCTrend     // Overall Price trend
+	Prices *[]float64    // A pointer to the price list
+}
+
+// doOHLC to extract OHLC info from a list of prices for a given time range
+func doOHLC(prices []float64) *OHLC {
+	candle := &OHLC{Prices: &prices}
+	candle.Close = prices[len(prices)-1]
+	candle.Open = prices[0]
+	candle.High = max64(prices)
+	candle.Low = min64(prices)
+	candle.Range = candle.Open - candle.Close
+	if candle.Range < 1 {
+		// Negative price movement
+		candle.Trend = Bearish
+	} else {
+		// Positive price movement
+		candle.Trend = Bullish
+	}
+	// candle.Period = time.Hour
+	return candle
+
+}
+
+func min64(a []float64) float64 {
+	if len(a) == 0 {
+		return 0
+	}
+	min := a[0]
+	for _, v := range a {
+		if v < min {
+			min = v
+		}
+	}
+	return min
+}
+
+func max64(a []float64) float64 {
+	if len(a) == 0 {
+		return 0
+	}
+	max := a[0]
+	for _, v := range a {
+		if v > max {
+			max = v
+		}
+	}
+	return max
 }
