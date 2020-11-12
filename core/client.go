@@ -491,14 +491,16 @@ func (cl *Client) AccountID() (ID map[string]string, err error) {
 // parameter `num` specifies the number of prices to be retrieved.
 // For example: num=10, interval=5 gets prices over the last 50 minutes.
 func (cl *Client) PreviousPrices(num int, interval time.Duration) (prices []float64, err error) {
-
 	timestamps := []luno.Time{}
 	allTrades := map[luno.Time]luno.Trade{}
-	// Oldest first
+
+	// Prepare timestamps. Oldest first.
 	for i := num; i > 0; i-- {
 		timestamps = append(timestamps, luno.Time(time.Now().Add(time.Duration(-i)*interval)))
 		// luno.Time(time.Now().Add(-24 * time.Hour))
 	}
+
+	// Retrieve trades from the exchange
 	var lastTrade luno.Trade
 	for _, timestamp := range timestamps {
 		sleep2() // Error 429 safety
@@ -509,14 +511,14 @@ func (cl *Client) PreviousPrices(num int, interval time.Duration) (prices []floa
 		}
 		noTrades := len(res.Trades)
 		if noTrades > 0 {
-			// Drop all trades but the latest one
+			// Drop all trades but the latest one i.e. the closing price.
 
-			// Use all trades instead
+			// // Use all trades instead
+			// for _, trade := range res.Trades {
+			// 	allTrades[trade.Timestamp] = trade
+			// }
 			lastTrade = res.Trades[noTrades-1]
-			for _, trade := range res.Trades {
-				allTrades[trade.Timestamp] = trade
-			}
-			// allTrades[timestamp] = lastTrade
+			allTrades[timestamp] = lastTrade
 			// allTrades[timestamp] = res.Trades[0]
 		} else {
 			// No trades were placed before the time period specified
@@ -587,12 +589,12 @@ func (cl *Client) PendingOrders() (pendingOrders interface{}) {
 
 // sleep delays the bot between each request in order to avoid exceeding the rate limit.
 func sleep() {
-	time.Sleep(650 * time.Millisecond)
+	time.Sleep(600 * time.Millisecond)
 }
 
-// sleep2 delays the bot for slightly longer than sleep. Sometimes sleep still triggers Error 429.
+// sleep2 delays the bot for slightly longer than sleep b/c sometimes sleep still triggers Error 429.
 func sleep2() {
-	time.Sleep(800 * time.Millisecond)
+	time.Sleep(750 * time.Millisecond)
 }
 
 // stringToInt converts a string of numbers to its numerical value
