@@ -286,6 +286,10 @@ func (win *Window) Loop() error {
 		case <-saleAlertChannel:
 			win.loadSalesList()
 			win.loadStats()
+		case <-botStoppedChannel:
+			// We have recieved a signal to stop.
+			win.handleStartStop(false)
+
 		case e := <-win.window.Events():
 			switch e := e.(type) {
 			case key.Event:
@@ -458,6 +462,7 @@ func (win *Window) runBot() {
 	err := bot.Run(win.cfg)
 	if err != nil {
 		leper.Logger.Print("The trading loop has exited with error: ", err.Error())
+		win.setLogViewText(fmt.Sprintln("The trading loop has exited with error: ", err.Error()))
 	}
 }
 
@@ -607,7 +612,6 @@ func (win *Window) saveUserSettings(gtx layout.Context) D {
 	// TODO: Show `material.Loading` widget beside the apply button
 	var err error
 	cfg := win.cfg
-
 	// Save general settings
 	if win.settingsPage == GeneralSettingsView {
 		// Add the General settings to the config struct
@@ -633,6 +637,7 @@ func (win *Window) saveUserSettings(gtx layout.Context) D {
 				cfg.EmailAddress = editor.Editor.Text()
 			}
 		}
+		cfg.AssetsToTrade = []string{}
 		for _, c := range assetChecks {
 			if c.check.Value {
 				cfg.AssetsToTrade = append(cfg.AssetsToTrade, assetCodes[c.asset])
@@ -651,7 +656,6 @@ func (win *Window) saveUserSettings(gtx layout.Context) D {
 	if updateErr != nil {
 		return win.alert(gtx, err.Error(), ColorRed)
 	}
-
 	win.cfg.Save()
 	return D{}
 }
