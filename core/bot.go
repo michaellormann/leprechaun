@@ -129,6 +129,7 @@ func (bot *Bot) Run(settings *Configuration) error {
 		// Attempt to connect to the API and initialized clients for each assets.
 		err := bot.initBot()
 		if err != nil {
+			fmt.Printf("init bot err in bot.go: %v\n", err)
 			// We could not connect to the luno API.
 			// Probably due to a network error.
 			if config.ExitOnInitFailed || err == ErrInvalidAPICredentials {
@@ -155,6 +156,7 @@ func (bot *Bot) Run(settings *Configuration) error {
 	initialRound = true
 	var roundNo int = 1
 	var signal SIGNAL
+	var purchaseUnitToosmall int = 0
 	for {
 		// This is the main trading loop.
 		for clientNo := 0; clientNo < len(bot.clients); clientNo++ {
@@ -179,10 +181,9 @@ func (bot *Bot) Run(settings *Configuration) error {
 				// Luno charges a taker fee for market orders.
 				// we compensate for that by buying more than
 				// the specified purchase Unit.
-				debug(takerFee)
-				debugf("30 day trading volume: %s %s. | Luno taker fee for %s is %.2f%s",
-					feeInfo.ThirtyDayVolume, cl.asset, cl.name, takerFee*100, "%")
-
+				thirtyDayVol, _ := strconv.ParseFloat(feeInfo.ThirtyDayVolume, 64)
+				debugf("30 day trading volume: %.2f %s. | Luno taker fee for %s is %.1f%s",
+					thirtyDayVol, cl.asset, cl.name, takerFee*100, "%")
 			}
 			debugf("Your account balance is %.2f %s", cl.fiatBalance, cl.currency)
 			currentPrice, err := cl.CurrentPrice()
@@ -202,10 +203,15 @@ func (bot *Bot) Run(settings *Configuration) error {
 			}
 
 			if config.PurchaseUnit < (cl.minOrderVol * currentPrice) {
-				debugf("The purchase amount you have specified %.2f can not purchase more than the minimum volume of %s that can be traded on the exchange (i.e %f %s)",
+				debugf("The purchase amount you have specified %.2f can not purchase more than the minimum volume of %s that can be traded on the exchange (i.e %.2f %s)",
 					config.PurchaseUnit, cl.name, cl.minOrderVol, cl.asset)
-				UIChans.StoppedChan <- struct{}{}
-				return ErrInvalidPurchaseUnit
+				purchaseUnitToosmall++
+				if len(bot.clients) == purchaseUnitToosmall {
+					UIChans.StoppedChan <- struct{}{}
+					return ErrInvalidPurchaseUnit
+				}
+				// continue the trading loop and move on to the next client
+				continue
 			}
 			debugf("The current price of %s(%s) is %s %.3f\n", cl.name, cl.asset, cl.currency, currentPrice)
 
@@ -615,8 +621,8 @@ func (bot *Bot) Emit(cl *Client) (signal SIGNAL, err error) {
 		}
 	}
 	if pricesErr != nil || len(prices) == 0 {
-		debug("An error occured while retrieving price data from the exchange. Please check your network connection!", err.Error())
-		return SignalWait, err
+		debug("An error occured while retrieving price data from the exchange. Please check your network connection!", pricesErr.Error())
+		return SignalWait, pricesErr
 	}
 
 	// Do analysis
