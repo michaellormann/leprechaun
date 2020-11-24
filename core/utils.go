@@ -110,7 +110,7 @@ func Snooze() error {
 
 func snooze(mins int32) error {
 	minutes := time.Duration(mins)
-	tick := time.NewTicker(5 * time.Second)
+	tick := time.NewTicker(6 * time.Second)
 	defer tick.Stop()
 	snoozeEnd := time.NewTimer(minutes * time.Minute)
 	defer snoozeEnd.Stop()
@@ -119,7 +119,7 @@ func snooze(mins int32) error {
 	for {
 		select {
 		case <-tick.C:
-			// check if user has stopped the bot every 5 seconds
+			// check if user has stopped the bot every 6 seconds
 			if cancelled() {
 				return ErrCancelled
 			}
@@ -127,7 +127,7 @@ func snooze(mins int32) error {
 			// Snooze period has elapsed.
 			return nil
 		default:
-			// time.Sleep(2)
+			time.Sleep(2)
 		}
 	}
 }
