@@ -130,6 +130,9 @@ func (bot *Bot) Run(settings *Configuration) error {
 		err := bot.initBot()
 		if err != nil {
 			fmt.Printf("init bot err in bot.go: %v\n", err)
+			if cancelled() {
+				return ErrCancelled
+			}
 			// We could not connect to the luno API.
 			// Probably due to a network error.
 			if config.ExitOnInitFailed || err == ErrInvalidAPICredentials {
@@ -213,7 +216,7 @@ func (bot *Bot) Run(settings *Configuration) error {
 				// continue the trading loop and move on to the next client
 				continue
 			}
-			debugf("The current price of %s(%s) is %s %.3f\n", cl.name, cl.asset, cl.currency, currentPrice)
+			debugf("The current ask price of %s(%s) is %s %.3f. Ask-Bid Spread is %.2f\n", cl.name, cl.asset, cl.currency, currentPrice, cl.spread)
 
 			config.AdjustedPurchaseUnit = float64(config.PurchaseUnit) + (takerFee * float64(config.PurchaseUnit))
 			canPurchase, err := cl.CheckBalanceSufficiency()
@@ -222,14 +225,15 @@ func (bot *Bot) Run(settings *Configuration) error {
 			}
 			debug("Leprechaun is analyzing market data...")
 			signal, err = bot.Emit(&cl)
-			debugf("Recommended action for %s based on market analysis: %v", cl.name, signal)
 			if err != nil {
 				debugf("Analysis for %s incomplete. Reason: %s. Will skip.", cl.name, err.Error())
 				continue
 			}
+			debugf("Recommended action for %s based on market analysis: %v", cl.name, signal)
 			if cancelled() {
 				return ErrCancelled
 			}
+
 			var (
 				record         Record
 				purchaseVolume float64
@@ -627,15 +631,15 @@ func (bot *Bot) Emit(cl *Client) (signal SIGNAL, err error) {
 
 	// Do analysis
 	log.Println(prices)
-	reducedPrices := []float64{}
-	if cl.name == RippleCoin {
-		// Luno does not support trading ripple coin in fractional units
-		for _, price := range prices {
-			reducedPrices = append(reducedPrices, math.Floor(price))
-		}
-		prices = reducedPrices
-		log.Println(reducedPrices)
-	}
+	// reducedPrices := []float64{}
+	// if cl.name == RippleCoin {
+	// 	// Luno does not support trading ripple coin in fractional units
+	// 	for _, price := range prices {
+	// 		reducedPrices = append(reducedPrices, math.Floor(price))
+	// 	}
+	// 	prices = reducedPrices
+	// 	log.Println(reducedPrices)
+	// }
 	if cancelled() {
 		return SignalWait, ErrCancelled
 	}

@@ -81,6 +81,7 @@ type Client struct {
 	lockedVolume  float64 // Volume of asset locked to complete long orders
 	asset         string
 	currency      string
+	spread        float64 // Bid-Ask spread
 	minOrderVol   float64 // Minimum volume that can be traded on the exchange
 }
 
@@ -471,6 +472,7 @@ func (cl *Client) CurrentPrice() (price float64, err error) {
 		return
 	}
 	price = res.Ask.Float64()
+	cl.spread = res.Ask.Float64() - res.Bid.Float64()
 	return
 }
 
@@ -492,13 +494,17 @@ func (cl *Client) AccountID() (ID map[string]string, err error) {
 // For example: num=10, interval=5 gets prices over the last 50 minutes.
 func (cl *Client) PreviousPrices(num int, interval time.Duration) (prices []float64, err error) {
 	timestamps := []luno.Time{}
-	allTrades := map[luno.Time]luno.Trade{}
+	// allTrades := map[luno.Time]luno.Trade{}
+	closingTrades := map[luno.Time]luno.Trade{}
 
 	// Prepare timestamps. Oldest first.
 	for i := num; i > 0; i-- {
+		// fmt.Println(time.Now().Hour())
 		timestamps = append(timestamps, luno.Time(time.Now().Add(time.Duration(-i)*interval)))
 		// luno.Time(time.Now().Add(-24 * time.Hour))
 	}
+
+	// ohlcData := []*OHLC{}
 
 	// Retrieve trades from the exchange
 	var lastTrade luno.Trade
@@ -517,12 +523,13 @@ func (cl *Client) PreviousPrices(num int, interval time.Duration) (prices []floa
 			// for _, trade := range res.Trades {
 			// 	allTrades[trade.Timestamp] = trade
 			// }
+
 			lastTrade = res.Trades[noTrades-1]
-			allTrades[timestamp] = lastTrade
+			closingTrades[timestamp] = lastTrade
 			// allTrades[timestamp] = res.Trades[0]
 		} else {
 			// No trades were placed before the time period specified
-			allTrades[timestamp] = lastTrade
+			closingTrades[timestamp] = lastTrade
 		}
 	}
 	// First append the current price to the list.
@@ -532,9 +539,17 @@ func (cl *Client) PreviousPrices(num int, interval time.Duration) (prices []floa
 	}
 	prices = append(prices, currentPrice)
 
-	for _, trade := range allTrades {
+	for _, trade := range closingTrades {
 		prices = append(prices, trade.Price.Float64())
 	}
+	// for timestamp, trade := range allTrades {
+	// 	// group timestamps hourly
+
+	// 	ohlcData = append(ohlcData, doOHLC(prices))
+	// }
+	// for i, d := range ohlcData {
+	// 	fmt.Printf("%d - %#v\n", i, d)
+	// }
 	// fmt.Println("Exchange prices for", cl.name, ":", prices)
 	return
 }
