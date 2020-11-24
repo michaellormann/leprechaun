@@ -6,6 +6,8 @@ package core
  */
 
 import (
+	"errors"
+	"math"
 	"strings"
 	"time"
 )
@@ -20,10 +22,11 @@ type Analyzer interface {
 	// the interval between each price point.
 	PriceDimensions() (int, time.Duration)
 	// Analyze is passed the historical price data received from the exchange and presumably
-	// does the technical analysis of the price data
+	// performs the technical analysis of the price data
 	Analyze(prices []float64) error
 	// Emit returns the final market signal based on the analysis
 	Emit() SIGNAL
+	Description() string
 }
 
 // SIGNAL is emitted by the Emit function based on results from the technical analysis
@@ -75,7 +78,7 @@ var (
 )
 
 // AnalysisPlugins holds registered analysis plugins. Each plugin should
-// 	1) Be defined in a seperate file the `plugins` package
+// 	1) Be defined in a seperate file in the `plugins` package
 // 	2) Register itself with a unique string identifier in its `init()` method, by calling `AnalysisPlugins.Register`
 //	3) Be well documented and expose a conscise description in its Description variable. The description
 // may include links to further information and explanation about the plugin.
@@ -123,25 +126,220 @@ func InitPlugins() error {
 }
 
 // OHLCTrend represents the general price movement of a given OHLC unit. It may be bullish or bearish.
-type OHLCTrend uint
+type OHLCTrend string
 
 const (
 	// Bullish indicates a positive price move where the closing price is higher than the opening price
-	Bullish OHLCTrend = iota
+	Bullish OHLCTrend = "Bullish"
 	// Bearish indicates a negative price move where the opening price is higher than the closing price
-	Bearish
+	Bearish OHLCTrend = "Bearish"
+	// Indifferent indicates a balanced trading trend in both direction or no change at all.
+	Indifferent OHLCTrend = "Indifferent"
 )
 
-// OHLC holds the Ope-High-Low-Close data for a range of prices
+// CandlestickPattern is a specific pattern for a set of candles.
+// The most recent candles in a candle chart are examined to see if they
+// match any of the patterns described. Basic candles chart patterns are included.
+// See `https://www.investopedia.com/trading/candlestick-charting-what-is-it/`
+type CandlestickPattern uint
+
+type (
+	// BearishCandlestickPattern is a bearish candlestick pattern
+	BearishCandlestickPattern CandlestickPattern
+	// BullishCandlestickPattern is a bullish candlestick pattern
+	BullishCandlestickPattern CandlestickPattern
+)
+
+const (
+	// BullishEngulfingPattern takes place when buyers outpace sellers.
+	// This is reflected in the chart by a long green real body engulfing a small red real body.
+	// With bulls having established some control, the price could head higher.
+	BullishEngulfingPattern BullishCandlestickPattern = iota
+	// BullishMorningStar Consists of a large black body candlestick followed by a small body (red or green) that occurs below the large red body candlestick.
+	// On the following day, a third white body candlestick is formed that closes well into the black body candlestick.
+	// It is considered a major reversal signal when it appears at the bottom
+	BullishMorningStar
+	// MorningDojiStar Consists of a large black body candlestick followed by a Doji that occurred below the preceding candlestick.
+	// On the following day, a third white body candlestick is formed that closes well into the black body candlestick which appeared before the Doji.
+	// It is considered a major reversal signal that is more bullish than the regular morning star pattern because of the existence of the Doji.
+	MorningDojiStar
+	// BullishHarami is the opposite of the upside down bearish harami.
+	// A downtrend is in play, and a small real body (green) occurs inside the large real body (red) of the previous day.
+	// This tells the technician that the trend is pausing. If it is followed by another up day, more upside could be forthcoming.
+	BullishHarami
+	// BullishHaramiCross occurs in a downtrend, where a down candle is followed by a doji.
+	// The doji is within the real body of the prior session.
+	// The implications are the same as the bullish harami.
+	BullishHaramiCross
+	// BullishRisingThree pattern starts out with what is called a "long white day."
+	// Then, on the second, third, and fourth trading sessions, small real bodies move the price lower,
+	// but they still stay within the price range of the long white day (day one in the pattern).
+	// The fifth and last day of the pattern is another long white day.
+	// Even though the pattern shows us that the price is falling for three straight days,
+	// a new low is not seen, and the bull traders prepare for the next move up
+	BullishRisingThree
+	// BullishRisingTwo is similar to the rising three patterns but with two small bearish candles instead of three.
+	BullishRisingTwo
+	// BullishKeyReversal is a key reversal in a downtrend occurs when the price opens below the prior bar's close,
+	// makes a new low, and then closes above the prior bar's high.
+	// This indicates a strong shift to the upside, warning of a potential rally.
+	BullishKeyReversal
+)
+
+const (
+	// BearishEngulfingPattern develops in an uptrend when sellers outnumber buyers.
+	// This action is reflected by a long red real body engulfing a small green real body.
+	// The pattern indicates that sellers are back in control and that the price could continue to decline.
+	BearishEngulfingPattern BearishCandlestickPattern = iota
+	// BearishEveningStar is a topping pattern.
+	// It is identified by the last candle in the pattern opening below the previous day's small real body.
+	// The small real body can be either red or green. The last candle closes deep into the real body of the candle two days prior.
+	// The pattern shows a stalling of the buyers and then the sellers taking control. More selling could develop.
+	BearishEveningStar
+	// EveningDojiStar Consists of three candlesticks.
+	// First is a large white body candlestick followed by a Doji that gaps above the white body.
+	// The third candlestick is a black body that closes well into the white body.
+	// When it appears at the top it is considered a reversal signal.
+	// It signals a more bearish trend than the evening star pattern because of the Doji that has appeared between the two bodies.
+	EveningDojiStar
+	// BearishHarami pattern is a small real body (red) completely inside the previous day's real body.
+	// This is not so much a pattern to act on, but it could be one to watch.
+	// The pattern shows indecision on the part of the buyers.
+	// If the price continues higher afterward, all may still be well with the uptrend,
+	// but a down candle following this pattern indicates a further slide.
+	BearishHarami
+	// BearishHaramiCross occurs in an uptrend, where an up candle is followed by a doji—the session where the candlestick has a virtually equal open and close.
+	// The doji is within the real body of the prior session. The implications are the same as the bearish harami
+	BearishHaramiCross
+	// BearishFallingThree pattern starts out with a strong down day.
+	// This is followed by three small real bodies that make upward progress but stay within the range of the first big down day.
+	// The pattern completes when the fifth day makes another large downward move.
+	// It shows that sellers are back in control and that the price could head lower.
+	BearishFallingThree
+	// BearishFallingTwo is the same as BearishFallingthree but has two small bullish bodies between the bearish candles.
+	BearishFallingTwo
+	// BearishKeyReversal is a key reversal in an uptrend and occurs when the price opens above the prior bar's close,
+	// makes a new high, and then closes below the prior bar's low.
+	// It shows a strong shift in momentum which could indicate a pullback is starting.
+	BearishKeyReversal
+)
+
+// LineChart is a chart that uses the closing prices of an asset over a specific period of time as data points.
+type LineChart struct {
+	ClosingPrices []float64
+	Start, Stop   time.Time
+	Interval      time.Duration
+	MovingAverage map[string]int
+	LinesData     [3]float64
+}
+
+var (
+	// ErrLastCandle is returned for the last candle in a chart. See `CandleChart.nextCandle` and `CandleChart.previousCandle`
+	ErrLastCandle = errors.New("there are no more candles in the chart. this is the last one")
+)
+
+// BullishChartPattern is a bullish candlestick pattern detected in the chart
+type BullishChartPattern struct {
+	Pattern         BullishCandlestickPattern
+	PreceedingTrend OHLCTrend
+}
+
+// BearishChartPattern is a bearish candlestick pattern detected in the chart
+type BearishChartPattern struct {
+	Pattern         BearishCandlestickPattern
+	PreceedingTrend OHLCTrend
+}
+
+// CandleChart is a chart that holds the OHLC data against time
+type CandleChart struct {
+	Candles           []*OHLC
+	Start, Stop       time.Time
+	Interval          time.Duration
+	MovingAverage     map[string]int
+	LinesData         [3]float64
+	MaxPatternCandles int // Maximum number of most recent candles to check for common candlestick patterns.
+	BullishPatterns   []BullishChartPattern
+	BearishPatterns   []BearishChartPattern // These are the bearish patterns that have been detected in the most recent candles of the chart.
+}
+
+func newLineChart(periodFrom, periodTo time.Time, interval time.Duration, mAverage map[string]int, prices []float64) *LineChart {
+	c := &LineChart{
+		ClosingPrices: prices,
+		Start:         periodFrom,
+		Stop:          periodTo,
+		Interval:      interval,
+		MovingAverage: map[string]int{"PERIOD": 20, "WINDOW": 2},
+	}
+	return c
+}
+
+func newCandleChart(periodFrom, periodTo time.Time, interval time.Duration, mAverage map[string]int, candles []*OHLC) *CandleChart {
+	c := &CandleChart{
+		Candles:           candles,
+		Start:             periodFrom,
+		Stop:              periodTo,
+		Interval:          interval,
+		MovingAverage:     map[string]int{"PERIOD": 20, "WINDOW": 2},
+		MaxPatternCandles: 5,
+		BearishPatterns:   []BearishChartPattern{},
+		BullishPatterns:   []BullishChartPattern{},
+	}
+	// cl.PreviousPrices(25, 1 * time.Hour)
+	// c.Candles = append(c.Candles, doOHLC(prices))
+	for i, candle := range candles {
+		candle.ID = i
+	}
+	return c
+}
+
+func (cht *CandleChart) nextCandle(current *OHLC) (candle *OHLC, err error) {
+	if len(cht.Candles) >= current.ID+1 {
+		return nil, ErrLastCandle
+	}
+	return cht.Candles[current.ID+1], nil
+}
+
+func (cht *CandleChart) nextCandles(num int, current *OHLC) (candles []*OHLC, err error) {
+	if len(cht.Candles) >= current.ID+1 {
+		return nil, ErrLastCandle
+	}
+	for i := 1; i == num; i++ {
+		candles = append(candles, cht.Candles[current.ID+i])
+	}
+	return
+}
+
+func (cht *CandleChart) previousCandle(current *OHLC) (candle *OHLC, err error) {
+	if current.ID == 0 {
+		return nil, ErrLastCandle
+	}
+	return cht.Candles[current.ID-1], nil
+}
+
+func (cht *CandleChart) previousCandles(num int, current *OHLC) (candles []*OHLC, err error) {
+	if current.ID == 0 {
+		return nil, ErrLastCandle
+	}
+	for i := 1; i <= num; i++ {
+		candles = append(candles, cht.Candles[current.ID-i])
+	}
+	return
+}
+
+// OHLC holds the Open-High-Low-Close data for a range of prices
 type OHLC struct {
-	Open   float64       // Opening Price
-	High   float64       // Highest Price
-	Low    float64       // Lowest Price
-	Close  float64       // Closing Price
-	Range  float64       // Different between Opening and Closing prices
-	Period time.Duration // unit of time being represented
-	Trend  OHLCTrend     // Overall Price trend
-	Prices *[]float64    // A pointer to the price list
+	Open                 float64              // Opening Price
+	High                 float64              // Highest Price
+	Low                  float64              // Lowest Price
+	Close                float64              // Closing Price
+	Range                float64              // Different between Opening and Closing prices
+	percentChange        float64              // Percent change in price
+	Period               time.Duration        // unit of time being represented
+	Trend                OHLCTrend            // Overall Price trend
+	Prices               *[]float64           // A pointer to the price list
+	Patterns             []CandlestickPattern // Patterns that the most recent candles in the chart form.
+	UpperTail, LowerTail float64
+	ID                   int // A unique number that identifies a candle in a series
 }
 
 // doOHLC to extract OHLC info from a list of prices for a given time range
@@ -149,9 +347,9 @@ func doOHLC(prices []float64) *OHLC {
 	candle := &OHLC{Prices: &prices}
 	candle.Close = prices[len(prices)-1]
 	candle.Open = prices[0]
-	candle.High = max64(prices)
-	candle.Low = min64(prices)
-	candle.Range = candle.Open - candle.Close
+	candle.High = Max64(prices)
+	candle.Low = Min64(prices)
+	candle.Range = candle.Close - candle.Open
 	if candle.Range < 1 {
 		// Negative price movement
 		candle.Trend = Bearish
@@ -159,12 +357,324 @@ func doOHLC(prices []float64) *OHLC {
 		// Positive price movement
 		candle.Trend = Bullish
 	}
+	candle.percentChange = (candle.Range * 100) / candle.Open
+	switch candle.Trend {
+	case Bullish:
+		candle.UpperTail = candle.High - candle.Close
+		candle.LowerTail = candle.Open - candle.Low
+	case Bearish:
+		candle.UpperTail = candle.High - candle.Open
+		candle.LowerTail = candle.Close - candle.Low
+	}
 	// candle.Period = time.Hour
 	return candle
+}
+
+// BB calculates the bollinger bands for a time series
+func BB(prices float64, SMA, deviation int64) {
+	// Calculate the simple moving average
+	// window = 1
+}
+
+// IsBullish returns true if the candle closes at a higher price than its open price.
+func (candle *OHLC) IsBullish() bool {
+	if candle.Trend == Bullish {
+		return true
+	}
+	return false
+}
+
+// IsBearish returns true if the candle closes at a lower price than its open price.
+func (candle *OHLC) IsBearish() bool {
+	if candle.Trend == Bearish {
+		return true
+	}
+	return false
+}
+
+// IsDoji returns true if a candles opening price is virtually the same with its closing price.
+// See `https://www.investopedia.com/terms/d/doji.asp`
+func (candle *OHLC) IsDoji() bool {
+	if math.Floor(candle.Open) == math.Floor(candle.Close) {
+		return true
+	}
+	return false
+}
+
+// IsHammer returns true if the candle is a hammer.
+// i.e. A black or white candlestick that consists of a small body near the high with little or no upper shadow and a long lower tail.
+// Considered a bullish pattern during a downtrend. See https://en.wikipedia.org/wiki/Hammer_(candlestick_pattern)
+func (candle *OHLC) IsHammer() bool {
+	if candle.IsBullish() {
+		// The lower tail/shadow is at least twice as long as the upper tail.
+		if candle.LowerTail > (2 * candle.UpperTail) {
+			// if (candle.Open - candle.Low) > (candle.Close-candle.High)*2 {
+			return true
+		}
+	}
+	return false
+}
+
+// Engulfs checks if a candle (i.e. candleTwo)
+func (candle *OHLC) Engulfs(candleTwo *OHLC) bool {
+	if candle.High > candleTwo.High && candle.Low < candleTwo.Low {
+		return true
+	}
+	return false
+}
+
+// AllBearish returns true if all candles in the slice are bearish, returns false otherwise
+func (cht *CandleChart) AllBearish(candles []*OHLC) bool {
+	for _, candle := range candles {
+		if candle.IsBullish() {
+			return false
+		}
+	}
+	return true
+}
+
+// AllBullish returns true if all candles in the slice are bullish, returns false otherwise.
+func (cht *CandleChart) AllBullish(candles []*OHLC) bool {
+	for _, candle := range candles {
+		if candle.IsBearish() {
+			return false
+		}
+	}
+	return true
+}
+
+// AddBearishPattern adds a detected bearish pattern to the chart struct as well as the trend
+// of the candles preceeding the detect pattern.
+func (cht *CandleChart) AddBearishPattern(earliestCandle *OHLC, pattern BearishCandlestickPattern) {
+	if previousThreeCandles, err := cht.previousCandles(3, earliestCandle); err != ErrLastCandle {
+		cht.BearishPatterns = append(cht.BearishPatterns, BearishChartPattern{Pattern: pattern,
+			PreceedingTrend: cht.DetectTrend(previousThreeCandles)})
+	}
+}
+
+// AddBullishPattern adds a detected bullish pattern to the chart struct as well as the trend
+// of the candles preceeding the detected pattern.
+func (cht *CandleChart) AddBullishPattern(earliestCandle *OHLC, pattern BullishCandlestickPattern) {
+	if previousThreeCandles, err := cht.previousCandles(3, earliestCandle); err != ErrLastCandle {
+		cht.BullishPatterns = append(cht.BullishPatterns, BullishChartPattern{Pattern: pattern,
+			PreceedingTrend: cht.DetectTrend(previousThreeCandles)})
+	}
+}
+
+// DetectTrend tries to score the overall trend of a group of candles that typically follow each other.
+// It is best but not necessary to provide an odd number of candles for a certain score.
+func (cht *CandleChart) DetectTrend(candles []*OHLC) OHLCTrend {
+	// TODO: add constraint to ensure only an odd number of candles are checked
+	bullishScore, bearishScore := 0, 0
+	for _, candle := range candles {
+		if candle.IsBearish() {
+			bearishScore++
+		} else if candle.IsBullish() {
+			bullishScore++
+		}
+	}
+	if bullishScore > bearishScore {
+		return Bullish
+	} else if bearishScore > bullishScore {
+		return Bearish
+	} else if bearishScore == bullishScore {
+		return Indifferent
+	}
+	return Indifferent
 
 }
 
-func min64(a []float64) float64 {
+// DetectPattern tries to match the most recent price data to common candlestick patterns
+func (cht *CandleChart) DetectPattern() {
+	patternCandles := cht.Candles[len(cht.Candles)-cht.MaxPatternCandles : len(cht.Candles)]
+	lastIdx := len(patternCandles) - 1
+	lastCandle := patternCandles[lastIdx]
+	// Check for patterns that end with a bearish candle, for example the bearish engulfing pattern
+	if lastCandle.IsBearish() {
+		if previousCandle, err := cht.previousCandle(lastCandle); err != ErrLastCandle {
+			if previousCandle.IsBullish() {
+				// Check for BearishEngulfingPattern. see https://www.investopedia.com/trading/candlestick-charting-what-is-it/ for more info
+				if lastCandle.Engulfs(previousCandle) {
+					// The last candle engulfs the preceeding one
+					cht.AddBearishPattern(previousCandle, BearishEngulfingPattern)
+				}
+				// Check for bearish harami
+				if previousCandle.Engulfs(lastCandle) {
+					// the last candle is engulfed by the preceeding one
+					cht.AddBearishPattern(previousCandle, BearishHarami)
+				}
+				// Check for bearish key reversal pattern
+				if lastCandle.Open > previousCandle.Close && lastCandle.High > lastCandle.Open {
+					if lastCandle.Close < previousCandle.Low {
+						cht.AddBearishPattern(previousCandle, BearishKeyReversal)
+					}
+				}
+			}
+			// Check for bearish evening star
+			if thirdCandle, err := cht.previousCandle(previousCandle); err != ErrLastCandle {
+				if thirdCandle.IsBullish() {
+					if previousCandle.IsDoji() {
+						if previousCandle.Low > thirdCandle.Close && lastCandle.Open < previousCandle.Close {
+							if lastCandle.Close > thirdCandle.Open {
+								// conditions for an evening doji star has been met.
+								cht.AddBearishPattern(thirdCandle, EveningDojiStar)
+							}
+						}
+					} else { // Next to last candle is Not a doji
+						// Previous candle is relatively small and gaps above the previous (third to last) candle
+						if previousCandle.Range <= (lastCandle.Range/2) && previousCandle.Open > thirdCandle.Open {
+							// Last candle opens below previous smaller candle and closes deep into the candle two periods before
+							if lastCandle.Open > previousCandle.Close && lastCandle.Close > thirdCandle.Open {
+								// Conditions for an evening star have been met
+								cht.AddBearishPattern(thirdCandle, BearishEveningStar)
+							}
+						}
+					}
+				}
+			}
+
+		}
+		// Check for bearish falling three (a.k.a Bearish 3-method formation)
+		if previousThreeCandles, err := cht.previousCandles(3, lastCandle); err != ErrLastCandle {
+			allThreeBullish := cht.AllBullish(previousThreeCandles)
+			if allThreeBullish {
+				if fifthCandle, err := cht.previousCandle(previousThreeCandles[len(previousThreeCandles)-1]); err != ErrLastCandle {
+					// fifthCandle is the one that preceedes the three bullish candles and of course our bearish current candle
+					if fifthCandle.IsBearish() {
+						highestPrices := []float64{}
+						for _, candle := range previousThreeCandles {
+							highestPrices = append(highestPrices, candle.High)
+						}
+						if Max64(highestPrices) < fifthCandle.High {
+							cht.AddBearishPattern(fifthCandle, BearishFallingThree)
+						}
+					}
+
+				}
+			}
+		}
+		// Check for bearish falling two
+		if previousTwoCandles, err := cht.previousCandles(2, lastCandle); err != ErrLastCandle {
+			bothBullish := cht.AllBullish(previousTwoCandles)
+			if bothBullish {
+				if fourthCandle, err := cht.previousCandle(previousTwoCandles[1]); err != ErrLastCandle {
+					if fourthCandle.IsBearish() {
+						highestPrices := []float64{}
+						for _, candle := range previousTwoCandles {
+							highestPrices = append(highestPrices, candle.High)
+						}
+						if Max64(highestPrices) < fourthCandle.High {
+							cht.AddBearishPattern(fourthCandle, BearishFallingTwo)
+						}
+					}
+				}
+			}
+		}
+
+	} else if lastCandle.IsBullish() { // Check for patterns that end in a bullish candle
+		if previousCandle, err := cht.previousCandle(lastCandle); err != ErrLastCandle {
+			if previousCandle.IsBearish() {
+				// Check for BullishEngulfingPattern. see https://www.investopedia.com/trading/candlestick-charting-what-is-it/ for more info
+				if lastCandle.Engulfs(previousCandle) {
+					// The last candle engulfs the preceeding one
+					cht.AddBullishPattern(previousCandle, BullishEngulfingPattern)
+				}
+				// Check for bullish harami
+				if previousCandle.Engulfs(lastCandle) {
+					// The last candle is engulfed by the preceeding one
+					cht.AddBullishPattern(previousCandle, BullishHarami)
+				}
+				// Check for bullish key reversal
+				if lastCandle.Open < previousCandle.Close && lastCandle.Low < lastCandle.Open {
+					if lastCandle.Close > previousCandle.High {
+						cht.AddBullishPattern(previousCandle, BullishKeyReversal)
+					}
+				}
+			}
+			// Check for bullish morning star
+			if thirdCandle, err := cht.previousCandle(previousCandle); err != ErrLastCandle {
+				if thirdCandle.IsBearish() {
+					if previousCandle.IsDoji() { // Check for morning doji star
+						if previousCandle.High < thirdCandle.Close && lastCandle.Open > previousCandle.Close {
+							if lastCandle.Close < thirdCandle.Open {
+								// conditions for an evening doji star has been met.
+								cht.AddBearishPattern(thirdCandle, EveningDojiStar)
+							}
+						}
+					} else {
+						// Previous candle is relatively small and gaps below the previous (third to last) candle
+						// if previousCandle.Range <= (lastCandle.Range/2) && previousCandle.Open < thirdCandle.Close {
+						if previousCandle.Range <= (lastCandle.Range/2) && previousCandle.Close < thirdCandle.Close {
+							// Last candle closes above previous smaller candle and oens deep into the candle two periods before
+							// if lastCandle.Close > previousCandle.Open && lastCandle.Open < thirdCandle.Open {
+							if lastCandle.Open > previousCandle.Close && lastCandle.Close < thirdCandle.Open {
+								// Conditions for a morning star have been met
+								cht.AddBullishPattern(thirdCandle, BullishMorningStar)
+							}
+						}
+					}
+				}
+			}
+
+		}
+		// Check for bullish rising three (a.k.a Bullish 3-method formation)
+		if previousThreeCandles, err := cht.previousCandles(3, lastCandle); err != ErrLastCandle {
+			allThreeBearish := cht.AllBearish(previousThreeCandles)
+			if allThreeBearish {
+				if fifthCandle, err := cht.previousCandle(previousThreeCandles[len(previousThreeCandles)-1]); err != ErrLastCandle {
+					// fifthCandle is the one that preceedes the three bearish candles and of course our bullish current candle
+					if fifthCandle.IsBullish() {
+						lowestPrices := []float64{}
+						for _, candle := range previousThreeCandles {
+							lowestPrices = append(lowestPrices, candle.High)
+						}
+						if Min64(lowestPrices) > fifthCandle.Low {
+							cht.AddBullishPattern(fifthCandle, BullishRisingThree)
+						}
+					}
+				}
+			}
+		}
+		// Check for bullish rising two
+		if previousTwoCandles, err := cht.previousCandles(2, lastCandle); err != ErrLastCandle {
+			bothBearish := cht.AllBearish(previousTwoCandles)
+			if bothBearish {
+				if fourthCandle, err := cht.previousCandle(previousTwoCandles[1]); err != ErrLastCandle {
+					if fourthCandle.IsBullish() {
+						lowestPrices := []float64{}
+						for _, candle := range previousTwoCandles {
+							lowestPrices = append(lowestPrices, candle.Low)
+						}
+						if Max64(lowestPrices) > fourthCandle.Low {
+							cht.AddBearishPattern(fourthCandle, BearishFallingTwo)
+						}
+					}
+				}
+			}
+		}
+
+	}
+
+	// Check for patterns that end in  a doji
+	if lastCandle.IsDoji() {
+		// Check for bullish harami cross
+		if previousCandle, err := cht.previousCandle(lastCandle); err != ErrLastCandle {
+			if previousCandle.IsBearish() && lastCandle.High < previousCandle.High && lastCandle.Low > previousCandle.Low {
+				cht.AddBullishPattern(previousCandle, BullishHaramiCross)
+			}
+		}
+		// Check for bearish harami cross
+		if previousCandle, err := cht.previousCandle(lastCandle); err != ErrLastCandle {
+			if previousCandle.IsBullish() && lastCandle.High < previousCandle.High && lastCandle.Low > previousCandle.Low {
+				cht.AddBearishPattern(previousCandle, BearishHaramiCross)
+			}
+		}
+	}
+
+}
+
+// Min64 returns the smallest value in a float64 list
+func Min64(a []float64) float64 {
 	if len(a) == 0 {
 		return 0
 	}
@@ -177,7 +687,8 @@ func min64(a []float64) float64 {
 	return min
 }
 
-func max64(a []float64) float64 {
+// Max64 returns the largest value in a float64 list
+func Max64(a []float64) float64 {
 	if len(a) == 0 {
 		return 0
 	}

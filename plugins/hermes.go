@@ -18,7 +18,7 @@ func init() {
 		log.Fatal("Could not initialize plugins")
 	}
 	// Register the plugin
-	core.PluginHandler.Register("hermes", Hermes{NumPrices: 25, PriceInterval: 60 * time.Minute})
+	core.PluginHandler.Register("hermes", Hermes{NumPrices: 21, PriceInterval: 60 * time.Minute})
 	// TODO: Expose the price dimensions parameters to the user, so they can change it if they want to.
 	log.Println("hermes plugin registered")
 }
@@ -56,6 +56,11 @@ func DefaultAnalysisPlugin(NumPrices int, PriceInterval time.Duration, tradingMo
 		PriceInterval: PriceInterval,
 		tradeMode:     tradingMode,
 	}
+}
+
+// Description gives a brief summary of what the plugin does and how.
+func (plugin Hermes) Description() string {
+	return "Under Construction"
 }
 
 // PriceDimensions returns two parameters. The number of past prices to be retrieved, and
@@ -107,7 +112,7 @@ func (plugin Hermes) doEMA() {
 	for _, price := range plugin.prices {
 		ema.Add(price)
 	}
-	// fmt.Println("EMA: ", ema.Value())
+	fmt.Println("EMA: ", ema.Value())
 	plugin.movingAverage = ema.Value()
 }
 
