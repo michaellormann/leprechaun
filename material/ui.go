@@ -460,7 +460,7 @@ func (win *Window) runBot() {
 	channels.Sale(saleAlertChannel)
 	bot.InitChannels(channels)
 	err := bot.Run(win.cfg)
-	if err != nil {
+	if err != nil && err != leper.ErrCancelled {
 		leper.Logger.Print("The trading loop has exited with error: ", err.Error())
 		win.setLogViewText(fmt.Sprintln("The trading loop has exited with error: ", err.Error()))
 	}
