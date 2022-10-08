@@ -64,7 +64,7 @@ func debug(v ...interface{}) {
 	// log.Println(v...)
 
 	// Send log message to UI over channel
-	if config.Verbose {
+	if config.Verbose && config.Debug {
 		time := time.Now().Format("15:04:05")
 		logChannel <- time + " " + fmt.Sprint(v...)
 	}
@@ -78,7 +78,7 @@ func debugf(format string, v ...interface{}) {
 	// log.Printf(format, v...)
 
 	// Send log message to UI over channel
-	if config.Verbose {
+	if config.Verbose && config.Debug {
 		time := time.Now().Format("15:04:05")
 		logChannel <- time + " " + fmt.Sprintf(format, v...)
 	}
@@ -100,6 +100,9 @@ func Snooze() error {
 	} else {
 		minutes = config.SnoozePeriod
 	}
+	if config.Debug {
+		debug("snoozing...")
+	}
 	err := snooze(minutes)
 	if err != nil {
 		// debugf("error: %s occured while snoozing", err)
@@ -114,8 +117,6 @@ func snooze(mins int32) error {
 	defer tick.Stop()
 	snoozeEnd := time.NewTimer(minutes * time.Minute)
 	defer snoozeEnd.Stop()
-	// debugf("Leprechaun is snoozing for %d minutes\n", minutes)
-	debugf("Snoozing...")
 	for {
 		select {
 		case <-tick.C:
@@ -131,7 +132,27 @@ func snooze(mins int32) error {
 		}
 	}
 }
-
+func snoozeSeconds(seconds int32) error {
+	secs := time.Duration(seconds)
+	tick := time.NewTicker(6 * time.Second)
+	defer tick.Stop()
+	snoozeEnd := time.NewTimer(secs * time.Second)
+	defer snoozeEnd.Stop()
+	for {
+		select {
+		case <-tick.C:
+			// check if user has stopped the bot every 6 seconds
+			if cancelled() {
+				return ErrCancelled
+			}
+		case <-snoozeEnd.C:
+			// Snooze period has elapsed.
+			return nil
+		default:
+			time.Sleep(2)
+		}
+	}
+}
 func shorterSnooze() {
 	minutes := 1
 	debugf("Leprechaun is snoozing for %d minute\n", minutes)

@@ -75,6 +75,8 @@ var (
 	ErrCancelled = errors.New("the trading session has been cancelled")
 	// ErrInvalidAPICredentials is returned for an invalid API key ID or key Secret
 	ErrInvalidAPICredentials = errors.New("invalid API credentials")
+	// ErrAPIKeyRevoked is returned for revoked or expired API keys
+	ErrAPIKeyRevoked = errors.New("expired/revoked API key")
 	// ErrChannelsNotInitialized is returned when the UI does not instatiate all necessary channels
 	ErrChannelsNotInitialized = errors.New("unable to start multiplexing. Initialize channels first")
 	// ErrInvalidPurchaseUnit is returned when the user wants to buy lower than the minimum trading volume
@@ -107,7 +109,7 @@ func (bot *Bot) InitChannels(chans *Channels) {
 
 			// Stop the bot if critical operation not happening
 			// Check that we are not in a ledger/purchase/sale function first
-			debugf("Current trading session (%s) has been stopped by the user.", bot.exchange)
+			debugf("Session terminated. Exchanges: [%s]", bot.exchange)
 			return true
 		default:
 			// do nothing
@@ -123,11 +125,11 @@ func (bot *Bot) Run(settings *Configuration) error {
 	if !channelsInitialized {
 		return ErrChannelsNotInitialized
 	}
-	debug("Leprechaun is starting...")
+	debug("Initializing...")
 	config = settings
 	for {
-		// Attempt to connect to the API and initialized clients for each assets.
-		err := bot.initBot()
+		// Attempt to connect to the API and initialize clients for each asset.
+		err := bot.startup()
 		if err != nil {
 			fmt.Printf("init bot err in bot.go: %v\n", err)
 			if cancelled() {
@@ -141,12 +143,24 @@ func (bot *Bot) Run(settings *Configuration) error {
 				UIChans.StoppedChan <- struct{}{}
 			} else {
 				// We continue to try after a short wait until we connect.
-				debug("Leprechaun will try to connect to the Luno API again after some time.")
+				debug("Leprechaun will try to connect again after some time...")
 				// shortSnooze()
 				if cancelled() {
 					return ErrCancelled
 				}
-				e := snooze(5) // Wait 5 minutes
+				var e error
+				if err == ErrNetworkFailed {
+					if bot.connectRetries != 0 {
+						// Network error lets wait ten seconds
+						bot.connectRetries--
+						e = snoozeSeconds(10)
+						if e != nil {
+							return e
+						}
+						continue // retry
+					}
+				}
+				e = snooze(5) // Wait 5 minutes
 				if e != nil {
 					return e
 				}
@@ -326,19 +340,29 @@ func (bot *Bot) Run(settings *Configuration) error {
 // NewBot create a new trading bot object
 func NewBot() *Bot {
 	bot = &Bot{
-		name:     Leprechaun,
-		exchange: ExchangeLuno,
+		name:           Leprechaun,
+		exchange:       ExchangeLuno,
+		connectRetries: 3,
 		// id:       rand.Intn(1000),
 	}
+	bot.analyzerOptions = &AnalysisOptions{
+		AnalysisPeriod: H24, // 24 Hours
+		Interval:       H1,  // Hourly interval
+		Mode:           config.Trade.TradingMode}
+	fmt.Println(bot.analyzer)
+	bot.analyzer = PluginHandler.Default
+	fmt.Println(bot.analyzer)
 	bot.SetAnalysisPlugin(PluginHandler.plugins[config.Trade.AnalysisPlugin.Name])
+	fmt.Println(bot.analyzer)
+	bot.analyzer.SetOptions(bot.analyzerOptions)
 	return bot
 }
 
 // SetAnalysisPlugin specifies the analyzer object used by the bot.
-// It is expose for external use.
+// It is exposed for external use.
 // The plugin object must satisfy the Analyzer interface.
 func (bot *Bot) SetAnalysisPlugin(plugin Analyzer) {
-	bot.analysisPlugin = plugin
+	bot.analyzer = plugin
 }
 
 // Channels returns a struct holding all chans for communicating with the bot.
@@ -346,9 +370,9 @@ func (bot *Bot) Channels() *Channels {
 	return &Channels{}
 }
 
-// initBot initializes Leprechaun.
-func (bot *Bot) initBot() error {
-	debug("Initializing clients...")
+// startup initializes Leprechaun.
+func (bot *Bot) startup() error {
+	// debug("Initializing clients...")
 	Assets := config.AssetsToTrade
 	if len(Assets) < 1 {
 		errStr := "Error! You have not specified any assets to trade. Please do so before starting the bot."
@@ -360,10 +384,15 @@ func (bot *Bot) initBot() error {
 		// ch <- int
 		client, err := initClient(asset)
 		if err != nil {
-			// Luno API rejected API key.
+			// Exchange API rejected API key.
 			if strings.Contains(err.Error(), "ErrAPIKeyNotFound") {
-				debug("The API Key you have provided is invalid! Please check it and try again.")
+				debugf("The %s API Key you have provided is invalid! Please check it and try again.", bot.exchange)
 				return ErrInvalidAPICredentials
+			}
+			// API Key has been revoked.
+			if strings.Contains(err.Error(), "ErrAPIKeyRevoked") {
+				debugf("The %s API Key you has been revoked! Try generating a new API key.", bot.exchange)
+				return ErrAPIKeyRevoked
 			}
 			// Could not connect to remote host.
 			if strings.Contains(err.Error(), "no such host") || strings.Contains(err.Error(), "No address associated with hostname") {
@@ -372,7 +401,7 @@ func (bot *Bot) initBot() error {
 			}
 			if strings.Contains(err.Error(), "context deadline exceeded") {
 				debug("Network Error! Your connection timed out. Please check your internet connection.")
-				return err
+				return ErrNetworkFailed
 			}
 			debug("Could not initialize ", assetNames[asset], " client. Reason: ", err)
 			return err
@@ -387,7 +416,7 @@ func (bot *Bot) initBot() error {
 	return nil
 }
 
-// Shutdown stops the program.
+// Shutdown stops the loop.
 func (bot *Bot) Shutdown() {
 	UIChans.StoppedChan <- struct{}{}
 }
@@ -610,27 +639,43 @@ func (bot *Bot) addRecordToLedger(rec Record) (err error) {
 // Emit runs the technical analysis pipeline and returns the
 // signal emited by the analysis plugin
 func (bot *Bot) Emit(cl *Client) (signal SIGNAL, err error) {
+	// TODO:: Explore possibility of caching same hour price data.
+	// Since analysis is done on hourly data, it may be efficient to memoize data when an hour has not elpased
+	// since the price data was last retrieved.
 	retries := 3
 	var (
-		prices    []float64
-		pricesErr error
+		candlesticks []OHLC
+		prices       []float64
+		pricesErr    error
 	)
+	// Retrieve historic price data from the exchange.
 	for errCount := 0; errCount < retries; errCount++ {
-		prices, pricesErr = cl.PreviousPrices(bot.analysisPlugin.PriceDimensions())
+		// prices, pricesErr = cl.PreviousPrices(bot.analyzer.PriceDimensions())
+		candlesticks, prices, pricesErr = cl.PreviousTrades(bot.analyzerOptions.AnalysisPeriod,
+			bot.analyzerOptions.Interval)
 		if cancelled() {
 			return SignalWait, ErrCancelled
 		}
+		fmt.Println(pricesErr)
 		if len(prices) > 0 && pricesErr == nil {
 			break
 		}
 	}
-	if pricesErr != nil || len(prices) == 0 {
+	if pricesErr != nil || len(prices) == 0 || len(candlesticks) == 0 {
 		debug("An error occured while retrieving price data from the exchange. Please check your network connection!", pricesErr.Error())
 		return SignalWait, pricesErr
 	}
 
-	// Do analysis
-	log.Println(prices)
+	currentPrice, err := cl.CurrentPrice()
+	if err != nil {
+		return SignalWait, errors.New("there was an error while retrieving price data from the exchange")
+	}
+	// fmt.Println("CANDLES (OHLC)")
+	// for _, x := range candlesticks {
+	// 	fmt.Printf("%+v ", x)
+	// }
+	// fmt.Println("CLOSING PRICES")
+	// fmt.Println(prices)
 	// reducedPrices := []float64{}
 	// if cl.name == RippleCoin {
 	// 	// Luno does not support trading ripple coin in fractional units
@@ -643,11 +688,19 @@ func (bot *Bot) Emit(cl *Client) (signal SIGNAL, err error) {
 	if cancelled() {
 		return SignalWait, ErrCancelled
 	}
-	err = bot.analysisPlugin.Analyze(prices)
+	// Pass the price data for the asset to the analysis plugin
+	bot.analyzer.SetClosingPrices(prices)
+	bot.analyzer.SetClosingPrices(prices)
+	bot.analyzer.SetCurrentPrice(currentPrice)
+	// Pass the OHLC data for the asset to the analysis plugin
+	bot.analyzer.SetOHLC(candlesticks)
+	fmt.Printf("%#v\n", bot.analyzer)
+
+	// Do analysis and Emit the signal.
+	signal, err = bot.analyzer.Emit()
 	if err != nil {
 		debugf("Analysis incomplete, due to error: (%v)", err)
 		return SignalWait, err
 	}
-	// Emit the signal
-	return bot.analysisPlugin.Emit(), nil
+	return signal, nil
 }

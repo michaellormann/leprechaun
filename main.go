@@ -151,7 +151,7 @@ func (a *App) InitLogBackends(subsystem string) {
 	return
 }
 
-// CloseLogFiles ensures that all subsytem loggers are
+// CloseLogFiles ensures that the loggers of all subsytems are
 // closed before the program exits.
 func (a *App) CloseLogFiles() {
 	var err error

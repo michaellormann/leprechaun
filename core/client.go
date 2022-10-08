@@ -202,14 +202,16 @@ func (entry *ProfitEntry) String() string {
 
 // Bot is our trading bot
 type Bot struct {
-	name           string
-	clients        []Client
-	exchange       string
-	sessionLength  time.Duration
-	id             int
-	cancel         context.CancelFunc
-	chans          *Channels
-	analysisPlugin Analyzer
+	name            string
+	clients         []Client
+	exchange        string
+	sessionLength   time.Duration
+	id              int
+	cancel          context.CancelFunc
+	chans           *Channels
+	connectRetries  int
+	analyzer        Analyzer
+	analyzerOptions *AnalysisOptions
 }
 
 // PurchaseQuote buys an asset using the qoute technique
@@ -488,6 +490,89 @@ func (cl *Client) AccountID() (ID map[string]string, err error) {
 	return
 }
 
+// PreviousTrades retreives past trades/prices from the exchange. Trades are grouped at specified intervals.
+// It is targeted for use in a candlestick chart. It is important to note that the data is
+// returned in reverse form. i.e. The most recent price is last in the list and the earliest is first.
+func (cl *Client) PreviousTrades(period, interval time.Duration) (ohlcData []OHLC, closingPrices []float64, err error) {
+	isMinutes := false
+	if interval.Hours() < 1.0 {
+		isMinutes = true
+	}
+	now := time.Now()
+	currentMinute := now.Truncate(time.Minute)
+	currentHour := currentMinute.Truncate(time.Hour)
+	tradeTimes := []luno.Time{}
+	switch isMinutes {
+	case false:
+		for i := 0.0; i < period.Hours(); i += interval.Hours() {
+			tradeTimes = append(tradeTimes, luno.Time(currentHour.Add(time.Duration(-i)*time.Hour)))
+		}
+	case true:
+		for i := 0.0; i < period.Minutes(); i += interval.Minutes() {
+			tradeTimes = append(tradeTimes, luno.Time(currentMinute.Add(time.Duration(-i)*time.Minute)))
+		}
+	}
+	// Reverse the timestamps. The earliest should be first in the list and the latest should come last.
+	// esp. helpful in the event the prices may be plotted on a graph.
+	reverseTimestamps(tradeTimes)
+	// fmt.Println(tradeTimes)
+	// Retrieve past trades from the exchange.
+	// IMPORTANT: Note that LUNO's API only returns at most 100 trades per call, so the data used here
+	// is an incomplete approximation of real life trades and should be used with caution.
+	Trades := map[luno.Time][]luno.Trade{}
+	for _, timestamp := range tradeTimes {
+		Trades[timestamp] = []luno.Trade{}
+		sleep2() // Error 429 safety
+		req := luno.ListTradesRequest{Pair: cl.Pair, Since: timestamp}
+		res, err := cl.ListTrades(ctx, &req)
+		if err != nil {
+			return nil, nil, ErrNetworkFailed
+		}
+		for _, trade := range res.Trades {
+			for tmstmp := range Trades {
+				if isMinutes {
+					if time.Time(trade.Timestamp).Minute() >= time.Time(tmstmp).Minute() &&
+						time.Time(trade.Timestamp).Minute() < time.Time(tmstmp).Minute()+int(interval.Minutes()) {
+						Trades[tmstmp] = append(Trades[tmstmp], trade)
+					}
+				} else {
+					if time.Time(trade.Timestamp).Hour() >= time.Time(tmstmp).Hour() &&
+						time.Time(trade.Timestamp).Hour() < time.Time(tmstmp).Hour()+int(interval.Hours()) {
+						Trades[tmstmp] = append(Trades[tmstmp], trade)
+					}
+					// if time.Time(trade.Timestamp).Hour() == time.Time(tmstmp).Hour() {
+					// 	Trades[tmstmp] = append(Trades[tmstmp], trade)
+					// }
+				}
+			}
+		}
+	}
+	Prices := []float64{}
+	Volume := 0.0
+	// group timestamps hourly
+	for _, hour := range tradeTimes {
+		trades := Trades[hour]
+		reverseSlice(trades) // earliest trades should come first.
+		// add the closing price for each period (hour) to a list.
+		lastTrade := trades[len(trades)-1]
+		closingPrices = append(closingPrices, lastTrade.Price.Float64())
+		for _, trade := range trades {
+			Prices = append(Prices, trade.Price.Float64())
+			Volume += trade.Volume.Float64()
+		}
+		// Collate all trade price and volume for each hour into a OHLC (candlestick) struct
+		candle := doOHLC(time.Time(hour), Prices, Volume)
+		ohlcData = append(ohlcData, candle)
+
+	}
+	// for i, d := range ohlcData {
+	// 	fmt.Printf("%d - %#v\n", i, d)
+	// }
+	// fmt.Println("Exchange prices for", cl.name, ":", prices)
+	return ohlcData, closingPrices, nil
+
+}
+
 // PreviousPrices retrieves historic price data from the exchange.
 // The price is determined from executed trades `interval` minutes apart,
 // parameter `num` specifies the number of prices to be retrieved.
@@ -609,7 +694,7 @@ func sleep() {
 
 // sleep2 delays the bot for slightly longer than sleep b/c sometimes sleep still triggers Error 429.
 func sleep2() {
-	time.Sleep(750 * time.Millisecond)
+	time.Sleep(700 * time.Millisecond)
 }
 
 // stringToInt converts a string of numbers to its numerical value
@@ -628,4 +713,16 @@ func stringToInt(s string) (num int64) {
 func decimal(val float64) (dec luno_decimal.Decimal) {
 	dec = luno_decimal.NewFromFloat64(val, 4)
 	return
+}
+
+func reverseTimestamps(stamps []luno.Time) {
+	for i, j := 0, len(stamps)-1; i < j; i, j = i+1, j-1 {
+		stamps[i], stamps[j] = stamps[j], stamps[i]
+	}
+}
+
+func reverseSlice(slice []luno.Trade) {
+	for i, j := 0, len(slice)-1; i < j; i, j = i+1, j-1 {
+		slice[i], slice[j] = slice[j], slice[i]
+	}
 }

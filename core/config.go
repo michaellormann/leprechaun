@@ -88,6 +88,7 @@ type Configuration struct {
 	SnoozeTimes          []int32
 	SnoozePeriod         int32
 	Verbose              bool
+	Debug                bool
 	AdjustedPurchaseUnit float64
 	Android              bool
 	CurrencyCode         string
@@ -129,6 +130,7 @@ func (c *Configuration) DefaultSettings(appDir string) error {
 		RandomSnooze:  true,
 		SnoozePeriod:  5,
 		Verbose:       true,
+		Debug:         false,
 		Trade: TradeSettings{
 			TradingMode: TrendFollowing,
 
@@ -195,6 +197,7 @@ func (c *Configuration) TestConfig(appDir string) error {
 	c.RandomSnooze = true
 	c.SnoozePeriod = 5
 	c.Verbose = true
+	c.Debug = true
 	c.Trade.TradingMode = TrendFollowing
 	c.Trade.AnalysisPlugin = struct {
 		Name string

@@ -396,7 +396,7 @@ func (win *Window) alert(gtx layout.Context, txt string, bgColor color.RGBA) lay
 	)
 }
 
-const aboutInfoText = `Leprechaun is a cryptocurrency trading bot based on the Luno Platform. To use this app, you must have an active Luno account verified for trading.
+const aboutInfoText = `Leprechaun is a cryptocurrency trading bot based. It currently supports trading on the Luno platform. To use this app, you must have an active Luno account verified for trading.
 Leprechaun trades on your behalf by using the Luno API. You must create an API key in the "Settings" section of  your account and use that key to configure Leprechaun.
 For added security, it is recommended you give the key permission to trade ONLY. Visit "https://www.luno.com/en" to create an account.
 Leprechaun is designed to run constantly as often as possible to make the most of market opportunities. Leprechaun's strategy involves buying a specifed amount of crypto and recording the cost in a ledger.

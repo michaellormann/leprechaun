@@ -7,26 +7,73 @@ package core
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"strings"
 	"time"
 )
 
 // Analyzer defines the interface for an arbitrary analysis pipeline.
-// the `Analyze` function takes in a list of historical prices of any asset
-// the `PriceInterval` and `NumPrices` fields specify the duration between each
-// price point and the number of prices to retrieve, and the `Emit` function
-// returns the signal based on the analysis done.
+// the `SetClosingPrices()` and `SetOHLC()` function takes in a list of historical prices of any asset,
+// the analysis is done on the price data. The data is retrieved from the exchange, each time.
+//  and the `Emit` function returns the signal based on the analysis done.
 type Analyzer interface {
-	// PriceDimensions returns two parameters. The number of past prices to be retrieved, and
-	// the interval between each price point.
-	PriceDimensions() (int, time.Duration)
-	// Analyze is passed the historical price data received from the exchange and presumably
-	// performs the technical analysis of the price data
-	Analyze(prices []float64) error
-	// Emit returns the final market signal based on the analysis
-	Emit() SIGNAL
+	// Emit returns the final market signal based on the analysis done by the analyzer plugin.
+	Emit() (SIGNAL, error)
+	// GetClosingPrices recieves the closing prices over a time period from the bot.
+	SetClosingPrices(prices []float64) error
+	// GetOHLC receives the OHLC data of trades from the bot. The number of data points and time range is
+	// specified by the PriceDimensions() function.
+	SetOHLC(candles []OHLC) error
+	// SetCurrentPrice passes the current ask price of the asset to the analysis plugin
+	SetCurrentPrice(float64) error
+	// SetOptions recieves the bots preferred analyzer configuration
+	SetOptions(opts *AnalysisOptions) error
+	// Description returns a short explanation of the plugins functionality.
 	Description() string
+}
+
+type timeInterval time.Duration
+
+const (
+	// M15 - 15 Minutes
+	M15 = 15 * time.Minute
+	// M30 - 30 Minutes
+	M30 = 30 * time.Minute
+	// M45 - 45 Minutes
+	M45 = 45 * time.Minute
+	// H1 - 1 Hour
+	H1 = 1 * time.Hour
+	// H2 - 2 Hours
+	H2 = 2 * time.Hour
+	// H3 - 3 Hours
+	H3 = H1 + H2
+	// H4 - 4 Hours
+	H4 = H2 * 2
+	// H6 - 6 Hours
+	H6 = H3 * 2
+	// H12 - 12 Hours
+	H12 = H6 * 2
+	// H18 - 18 Hours
+	H18 = H6 * 3
+	// H24 - 24 Hours
+	H24 = H12 * 2
+	// H48 - 48 Hours
+	H48 = H24 * 2
+	// H72 - 72 Hours
+	H72 = H24 * 3
+)
+
+// AnalysisOptions are configuration information passed from the bot to the analyzer.
+type AnalysisOptions struct {
+	// AnalysisPeriod is the period for which the analysis is carried out.
+	//  e.g. 24 hours to analyze past price data for the past day.
+	AnalysisPeriod time.Duration
+	// Interval is the period between each data point.
+	// e.g. One hour to retrieve hourly data.
+	Interval time.Duration
+	// Mode is the trading mode for each
+	Mode TradeMode
 }
 
 // SIGNAL is emitted by the Emit function based on results from the technical analysis
@@ -69,6 +116,7 @@ const (
 // PricePosition indicates whether the current price is above or below an indicator e.g. the moving average.
 type PricePosition struct {
 	Above, Below, Stable bool
+	Margin               float64
 }
 
 var (
@@ -125,17 +173,204 @@ func InitPlugins() error {
 	return nil
 }
 
-// OHLCTrend represents the general price movement of a given OHLC unit. It may be bullish or bearish.
-type OHLCTrend string
+// MovingAverage ...
+type MovingAverage struct {
+	Period int // Number of datapoints considered.
+	Window int
+}
+
+// LineChart is a chart that uses the closing prices of an asset over a specific period of time as data points.
+type LineChart struct {
+	Prices        []float64
+	Trend         ChartTrend
+	Start, Stop   time.Time
+	Interval      time.Duration
+	MovingAverage map[string]int
+	LinesData     [3]float64
+}
+
+// NewLineChart creates a price chart with the closing price of each time interval
+// used as each individual data point.
+func NewLineChart(prices []float64) LineChart {
+	chart := LineChart{
+		MovingAverage: map[string]int{"PERIOD": 20, "WINDOW": 2},
+	}
+	chart.Prices = prices
+	// chart.DetectTrend()
+	return chart
+}
+
+// DetectTrend tries to detect the overall sentiment of the chart.
+// If the price at any point is higher than its next price it
+// signifies a drop in price, and vice versa.
+// If the score is positive, there has been a relative uptrend in price movement
+// if the score is negative, price movement has been downward
+func (chart LineChart) DetectTrend() {
+	score := 0
+	for x := 0; x < len(chart.Prices)-1; x++ {
+		if chart.Prices[x] > chart.Prices[x+1] {
+			// a datapoint is less than the one before it. Indicates a reduction in price
+			score--
+		} else if chart.Prices[x] < chart.Prices[x+1] {
+			// a datapoint is higher than the one before it. Indicates an increase in price
+			score++
+		}
+	}
+	if score > 0 {
+		chart.Trend = Bullish
+	} else if score < 0 {
+		chart.Trend = Bearish
+	} else {
+		chart.Trend = Indifferent
+	}
+
+}
+
+// OHLC holds the Open-High-Low-Close data for a range of prices
+type OHLC struct {
+	Open                 float64              // Opening Price
+	High                 float64              // Highest Price
+	Low                  float64              // Lowest Price
+	Close                float64              // Closing Price
+	Range                float64              // Difference between Opening and Closing prices
+	percentChange        float64              // Percent change in price
+	Period               time.Duration        // unit of time being represented
+	Time                 time.Time            // start time for this specific candle
+	Trend                ChartTrend           // Overall Price trend
+	Prices               *[]float64           // A pointer to the price list
+	TotalVolume          float64              // Total traded volume of the period in question
+	Patterns             []CandlestickPattern // Patterns that the most recent candles in the chart form.
+	UpperTail, LowerTail float64
+	ID                   int // A unique number that identifies a candle in a series
+}
+
+// doOHLC to extract OHLC info from a list of prices for a given time range
+func doOHLC(startTime time.Time, prices []float64, volume float64) OHLC {
+	candle := OHLC{Prices: &prices, TotalVolume: volume, Time: startTime, Period: time.Hour}
+	candle.Close = prices[len(prices)-1]
+	candle.Open = prices[0]
+	candle.High = Max64(prices)
+	candle.Low = Min64(prices)
+	candle.Range = candle.Close - candle.Open
+	if candle.Range < 1 {
+		// Negative price movement
+		candle.Trend = Bearish
+	} else {
+		// Positive price movement
+		candle.Trend = Bullish
+	}
+	candle.percentChange = (candle.Range * 100) / candle.Open
+	switch candle.Trend {
+	case Bullish:
+		candle.UpperTail = candle.High - candle.Close
+		candle.LowerTail = candle.Open - candle.Low
+	case Bearish:
+		candle.UpperTail = candle.High - candle.Open
+		candle.LowerTail = candle.Close - candle.Low
+	}
+	// candle.Period = time.Hour
+	return candle
+}
+
+// BB calculates the bollinger bands for a time series
+func BB(prices float64, SMA, deviation int64) {
+	// Calculate the simple moving average
+	// window = 1
+}
+
+// IsBullish returns true if the candle closes at a higher price than its open price.
+func (candle OHLC) IsBullish() bool {
+	if candle.Trend == Bullish {
+		return true
+	}
+	return false
+}
+
+// IsBearish returns true if the candle closes at a lower price than its open price.
+func (candle OHLC) IsBearish() bool {
+	if candle.Trend == Bearish {
+		return true
+	}
+	return false
+}
+
+// IsDoji returns true if a candles opening price is virtually the same with its closing price.
+// See `https://www.investopedia.com/terms/d/doji.asp`
+func (candle OHLC) IsDoji() bool {
+	if math.Floor(candle.Open) == math.Floor(candle.Close) {
+		return true
+	}
+	return false
+}
+
+// IsHammer returns true if the candle is a hammer.
+// i.e. A black or white candlestick that consists of a small body near the high with little or no upper shadow and a long lower tail.
+// Considered a bullish pattern during a downtrend. See https://en.wikipedia.org/wiki/Hammer_(candlestick_pattern)
+func (candle OHLC) IsHammer() bool {
+	if candle.IsBullish() {
+		// The lower tail/shadow is at least twice as long as the upper tail.
+		if candle.LowerTail > (2 * candle.UpperTail) {
+			// if (candle.Open - candle.Low) > (candle.Close-candle.High)*2 {
+			return true
+		}
+	}
+	return false
+}
+
+// Engulfs checks if a candle (i.e. candleTwo)
+func (candle OHLC) Engulfs(candleTwo OHLC) bool {
+	if candle.High > candleTwo.High && candle.Low < candleTwo.Low {
+		return true
+	}
+	return false
+}
+
+// AllBearish returns true if all candles in the slice are bearish, returns false otherwise
+func (cht CandleChart) AllBearish(candles []OHLC) bool {
+	for _, candle := range candles {
+		if candle.IsBullish() {
+			return false
+		}
+	}
+	return true
+}
+
+// AllBullish returns true if all candles in the slice are bullish, returns false otherwise.
+func (cht CandleChart) AllBullish(candles []OHLC) bool {
+	for _, candle := range candles {
+		if candle.IsBearish() {
+			return false
+		}
+	}
+	return true
+}
+
+// ChartTrend represents the general price movement of a given OHLC unit. It may be bullish or bearish.
+type ChartTrend string
 
 const (
 	// Bullish indicates a positive price move where the closing price is higher than the opening price
-	Bullish OHLCTrend = "Bullish"
+	Bullish ChartTrend = "Bullish"
 	// Bearish indicates a negative price move where the opening price is higher than the closing price
-	Bearish OHLCTrend = "Bearish"
+	Bearish ChartTrend = "Bearish"
 	// Indifferent indicates a balanced trading trend in both direction or no change at all.
-	Indifferent OHLCTrend = "Indifferent"
+	Indifferent ChartTrend = "Indifferent"
 )
+
+// IsBullish ...
+func (tr ChartTrend) IsBullish() bool {
+	return tr == "Bullish"
+}
+
+// IsBearish ...
+func (tr ChartTrend) IsBearish() bool {
+	return tr == "Bearish"
+}
+
+// IsIndifferent ...
+func (tr ChartTrend) IsIndifferent() bool {
+	return tr == "Indifferent"
+}
 
 // CandlestickPattern is a specific pattern for a set of candles.
 // The most recent candles in a candle chart are examined to see if they
@@ -184,6 +419,9 @@ const (
 	// makes a new low, and then closes above the prior bar's high.
 	// This indicates a strong shift to the upside, warning of a potential rally.
 	BullishKeyReversal
+	// BullishGenericPattern is a pattern that is formed by subsequently higher closes of the candles in question.
+	// It is intended for use in the event the common patterns defined above are not detected.
+	BullishGenericPattern
 )
 
 const (
@@ -222,84 +460,65 @@ const (
 	// makes a new high, and then closes below the prior bar's low.
 	// It shows a strong shift in momentum which could indicate a pullback is starting.
 	BearishKeyReversal
+	// BearishGenericPattern is a pattern that is formed by subsequently lower closes of the candles in question.
+	// It is intended for use in the event the common patterns defined above are not detected.
+	// Its score should be dependent on the number of candles that form the longest chain.
+	BearishGenericPattern
 )
 
-// LineChart is a chart that uses the closing prices of an asset over a specific period of time as data points.
-type LineChart struct {
-	ClosingPrices []float64
-	Start, Stop   time.Time
-	Interval      time.Duration
-	MovingAverage map[string]int
-	LinesData     [3]float64
-}
-
 var (
-	// ErrLastCandle is returned for the last candle in a chart. See `CandleChart.nextCandle` and `CandleChart.previousCandle`
+	// ErrLastCandle is returned while trying to trasverse the last candle in a chart. See `CandleChart.nextCandle` and `CandleChart.previousCandle`
 	ErrLastCandle = errors.New("there are no more candles in the chart. this is the last one")
 )
 
 // BullishChartPattern is a bullish candlestick pattern detected in the chart
 type BullishChartPattern struct {
 	Pattern         BullishCandlestickPattern
-	PreceedingTrend OHLCTrend
+	PreceedingTrend ChartTrend
 }
 
 // BearishChartPattern is a bearish candlestick pattern detected in the chart
 type BearishChartPattern struct {
 	Pattern         BearishCandlestickPattern
-	PreceedingTrend OHLCTrend
+	PreceedingTrend ChartTrend
 }
 
 // CandleChart is a chart that holds the OHLC data against time
 type CandleChart struct {
-	Candles           []*OHLC
+	Candles           []OHLC
+	Length            int // Number of candles in the chart
 	Start, Stop       time.Time
 	Interval          time.Duration
 	MovingAverage     map[string]int
-	LinesData         [3]float64
+	Lines             [3]float64
 	MaxPatternCandles int // Maximum number of most recent candles to check for common candlestick patterns.
 	BullishPatterns   []BullishChartPattern
 	BearishPatterns   []BearishChartPattern // These are the bearish patterns that have been detected in the most recent candles of the chart.
 }
 
-func newLineChart(periodFrom, periodTo time.Time, interval time.Duration, mAverage map[string]int, prices []float64) *LineChart {
-	c := &LineChart{
-		ClosingPrices: prices,
-		Start:         periodFrom,
-		Stop:          periodTo,
-		Interval:      interval,
-		MovingAverage: map[string]int{"PERIOD": 20, "WINDOW": 2},
-	}
-	return c
-}
-
-func newCandleChart(periodFrom, periodTo time.Time, interval time.Duration, mAverage map[string]int, candles []*OHLC) *CandleChart {
-	c := &CandleChart{
-		Candles:           candles,
-		Start:             periodFrom,
-		Stop:              periodTo,
-		Interval:          interval,
-		MovingAverage:     map[string]int{"PERIOD": 20, "WINDOW": 2},
+// NewCandleChart returns a candlestick chart initialized with the provided values.
+func NewCandleChart(candles []OHLC) CandleChart {
+	c := CandleChart{
+		Candles:           []OHLC{},
 		MaxPatternCandles: 5,
 		BearishPatterns:   []BearishChartPattern{},
 		BullishPatterns:   []BullishChartPattern{},
 	}
-	// cl.PreviousPrices(25, 1 * time.Hour)
-	// c.Candles = append(c.Candles, doOHLC(prices))
 	for i, candle := range candles {
 		candle.ID = i
+		c.Candles = append(c.Candles, candle)
 	}
 	return c
 }
 
-func (cht *CandleChart) nextCandle(current *OHLC) (candle *OHLC, err error) {
+func (cht CandleChart) nextCandle(current OHLC) (candle OHLC, err error) {
 	if len(cht.Candles) >= current.ID+1 {
-		return nil, ErrLastCandle
+		return OHLC{}, ErrLastCandle
 	}
 	return cht.Candles[current.ID+1], nil
 }
 
-func (cht *CandleChart) nextCandles(num int, current *OHLC) (candles []*OHLC, err error) {
+func (cht CandleChart) nextCandles(num int, current OHLC) (candles []OHLC, err error) {
 	if len(cht.Candles) >= current.ID+1 {
 		return nil, ErrLastCandle
 	}
@@ -309,14 +528,14 @@ func (cht *CandleChart) nextCandles(num int, current *OHLC) (candles []*OHLC, er
 	return
 }
 
-func (cht *CandleChart) previousCandle(current *OHLC) (candle *OHLC, err error) {
+func (cht CandleChart) previousCandle(current OHLC) (candle OHLC, err error) {
 	if current.ID == 0 {
-		return nil, ErrLastCandle
+		return OHLC{}, ErrLastCandle
 	}
 	return cht.Candles[current.ID-1], nil
 }
 
-func (cht *CandleChart) previousCandles(num int, current *OHLC) (candles []*OHLC, err error) {
+func (cht CandleChart) previousCandles(num int, current OHLC) (candles []OHLC, err error) {
 	if current.ID == 0 {
 		return nil, ErrLastCandle
 	}
@@ -326,126 +545,9 @@ func (cht *CandleChart) previousCandles(num int, current *OHLC) (candles []*OHLC
 	return
 }
 
-// OHLC holds the Open-High-Low-Close data for a range of prices
-type OHLC struct {
-	Open                 float64              // Opening Price
-	High                 float64              // Highest Price
-	Low                  float64              // Lowest Price
-	Close                float64              // Closing Price
-	Range                float64              // Different between Opening and Closing prices
-	percentChange        float64              // Percent change in price
-	Period               time.Duration        // unit of time being represented
-	Trend                OHLCTrend            // Overall Price trend
-	Prices               *[]float64           // A pointer to the price list
-	Patterns             []CandlestickPattern // Patterns that the most recent candles in the chart form.
-	UpperTail, LowerTail float64
-	ID                   int // A unique number that identifies a candle in a series
-}
-
-// doOHLC to extract OHLC info from a list of prices for a given time range
-func doOHLC(prices []float64) *OHLC {
-	candle := &OHLC{Prices: &prices}
-	candle.Close = prices[len(prices)-1]
-	candle.Open = prices[0]
-	candle.High = Max64(prices)
-	candle.Low = Min64(prices)
-	candle.Range = candle.Close - candle.Open
-	if candle.Range < 1 {
-		// Negative price movement
-		candle.Trend = Bearish
-	} else {
-		// Positive price movement
-		candle.Trend = Bullish
-	}
-	candle.percentChange = (candle.Range * 100) / candle.Open
-	switch candle.Trend {
-	case Bullish:
-		candle.UpperTail = candle.High - candle.Close
-		candle.LowerTail = candle.Open - candle.Low
-	case Bearish:
-		candle.UpperTail = candle.High - candle.Open
-		candle.LowerTail = candle.Close - candle.Low
-	}
-	// candle.Period = time.Hour
-	return candle
-}
-
-// BB calculates the bollinger bands for a time series
-func BB(prices float64, SMA, deviation int64) {
-	// Calculate the simple moving average
-	// window = 1
-}
-
-// IsBullish returns true if the candle closes at a higher price than its open price.
-func (candle *OHLC) IsBullish() bool {
-	if candle.Trend == Bullish {
-		return true
-	}
-	return false
-}
-
-// IsBearish returns true if the candle closes at a lower price than its open price.
-func (candle *OHLC) IsBearish() bool {
-	if candle.Trend == Bearish {
-		return true
-	}
-	return false
-}
-
-// IsDoji returns true if a candles opening price is virtually the same with its closing price.
-// See `https://www.investopedia.com/terms/d/doji.asp`
-func (candle *OHLC) IsDoji() bool {
-	if math.Floor(candle.Open) == math.Floor(candle.Close) {
-		return true
-	}
-	return false
-}
-
-// IsHammer returns true if the candle is a hammer.
-// i.e. A black or white candlestick that consists of a small body near the high with little or no upper shadow and a long lower tail.
-// Considered a bullish pattern during a downtrend. See https://en.wikipedia.org/wiki/Hammer_(candlestick_pattern)
-func (candle *OHLC) IsHammer() bool {
-	if candle.IsBullish() {
-		// The lower tail/shadow is at least twice as long as the upper tail.
-		if candle.LowerTail > (2 * candle.UpperTail) {
-			// if (candle.Open - candle.Low) > (candle.Close-candle.High)*2 {
-			return true
-		}
-	}
-	return false
-}
-
-// Engulfs checks if a candle (i.e. candleTwo)
-func (candle *OHLC) Engulfs(candleTwo *OHLC) bool {
-	if candle.High > candleTwo.High && candle.Low < candleTwo.Low {
-		return true
-	}
-	return false
-}
-
-// AllBearish returns true if all candles in the slice are bearish, returns false otherwise
-func (cht *CandleChart) AllBearish(candles []*OHLC) bool {
-	for _, candle := range candles {
-		if candle.IsBullish() {
-			return false
-		}
-	}
-	return true
-}
-
-// AllBullish returns true if all candles in the slice are bullish, returns false otherwise.
-func (cht *CandleChart) AllBullish(candles []*OHLC) bool {
-	for _, candle := range candles {
-		if candle.IsBearish() {
-			return false
-		}
-	}
-	return true
-}
-
 // AddBearishPattern adds a detected bearish pattern to the chart struct as well as the trend
 // of the candles preceeding the detect pattern.
-func (cht *CandleChart) AddBearishPattern(earliestCandle *OHLC, pattern BearishCandlestickPattern) {
+func (cht CandleChart) AddBearishPattern(earliestCandle OHLC, pattern BearishCandlestickPattern) {
 	if previousThreeCandles, err := cht.previousCandles(3, earliestCandle); err != ErrLastCandle {
 		cht.BearishPatterns = append(cht.BearishPatterns, BearishChartPattern{Pattern: pattern,
 			PreceedingTrend: cht.DetectTrend(previousThreeCandles)})
@@ -454,7 +556,7 @@ func (cht *CandleChart) AddBearishPattern(earliestCandle *OHLC, pattern BearishC
 
 // AddBullishPattern adds a detected bullish pattern to the chart struct as well as the trend
 // of the candles preceeding the detected pattern.
-func (cht *CandleChart) AddBullishPattern(earliestCandle *OHLC, pattern BullishCandlestickPattern) {
+func (cht CandleChart) AddBullishPattern(earliestCandle OHLC, pattern BullishCandlestickPattern) {
 	if previousThreeCandles, err := cht.previousCandles(3, earliestCandle); err != ErrLastCandle {
 		cht.BullishPatterns = append(cht.BullishPatterns, BullishChartPattern{Pattern: pattern,
 			PreceedingTrend: cht.DetectTrend(previousThreeCandles)})
@@ -463,7 +565,7 @@ func (cht *CandleChart) AddBullishPattern(earliestCandle *OHLC, pattern BullishC
 
 // DetectTrend tries to score the overall trend of a group of candles that typically follow each other.
 // It is best but not necessary to provide an odd number of candles for a certain score.
-func (cht *CandleChart) DetectTrend(candles []*OHLC) OHLCTrend {
+func (cht CandleChart) DetectTrend(candles []OHLC) ChartTrend {
 	// TODO: add constraint to ensure only an odd number of candles are checked
 	bullishScore, bearishScore := 0, 0
 	for _, candle := range candles {
@@ -484,8 +586,9 @@ func (cht *CandleChart) DetectTrend(candles []*OHLC) OHLCTrend {
 
 }
 
-// DetectPattern tries to match the most recent price data to common candlestick patterns
-func (cht *CandleChart) DetectPattern() {
+// DetectPatterns tries to match the most recent price data to common candlestick patterns
+func (cht CandleChart) DetectPatterns() {
+	fmt.Println(len(cht.Candles), cht.Candles)
 	patternCandles := cht.Candles[len(cht.Candles)-cht.MaxPatternCandles : len(cht.Candles)]
 	lastIdx := len(patternCandles) - 1
 	lastCandle := patternCandles[lastIdx]
@@ -571,6 +674,13 @@ func (cht *CandleChart) DetectPattern() {
 			}
 		}
 
+		// In the event no patterns have been detected check for a generic bearish pattern
+		if previousThreeCandles, err := cht.previousCandles(3, lastCandle); err != ErrLastCandle {
+			if cht.AllBearish(previousThreeCandles) {
+				cht.AddBearishPattern(lastCandle, BearishGenericPattern)
+			}
+		}
+
 	} else if lastCandle.IsBullish() { // Check for patterns that end in a bullish candle
 		if previousCandle, err := cht.previousCandle(lastCandle); err != ErrLastCandle {
 			if previousCandle.IsBearish() {
@@ -652,7 +762,12 @@ func (cht *CandleChart) DetectPattern() {
 				}
 			}
 		}
-
+		// In the event no patterns have been detected check for a generic bullsih pattern
+		if previousThreeCandles, err := cht.previousCandles(3, lastCandle); err != ErrLastCandle {
+			if cht.AllBullish(previousThreeCandles) {
+				cht.AddBullishPattern(lastCandle, BullishGenericPattern)
+			}
+		}
 	}
 
 	// Check for patterns that end in  a doji
