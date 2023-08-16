@@ -23,3 +23,5 @@ SELL - ????
 #### Profit margin
 
 #### Trade modes
+
+## SADOC DIED!
