@@ -25,3 +25,5 @@ SELL - ????
 #### Trade modes
 
 ## SADOC DIED!
+So I'm probably not going to touch this again. If anyone who stumbles upon this feels guided to use it as a basis for their own work or even complete it, Please feel free to do so. This is unlicensed and will remain so. Just make sure others can benefit from it. Most of the basic functionality is already there. My hope was to upgrade the decision making heuristics of leprechaun to use AI (so it learns over time) instead of basic logic. I tried to get started in [unit 2](https://www.github.com/michaellormann/unit2), you can check that out as well. OR you can just pick whatever piece of code you need... Just do whatever the fuck you want with it :)
+.
